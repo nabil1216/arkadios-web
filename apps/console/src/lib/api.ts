@@ -1,3 +1,6 @@
+/** Platform API base (docs/ARCHITECTURE.md, Wire conventions). */
+export const API_BASE = '/api/platform/v1'
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -30,7 +33,7 @@ async function send(path: string, opts: RequestOptions, token: string | null) {
   const headers: Record<string, string> = {}
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
-  return fetch(`/api${path}`, {
+  return fetch(`${API_BASE}${path}`, {
     method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,

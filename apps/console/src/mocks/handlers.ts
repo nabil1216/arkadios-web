@@ -1,5 +1,6 @@
 import { delay, http, HttpResponse } from 'msw'
 import type { SessionResponse } from '@/features/auth/api/types'
+import { API_BASE } from '@/lib/api'
 import { DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
 
 const ACCESS_PREFIX = 'mock-access.'
@@ -34,7 +35,7 @@ function bearerUser(request: Request): SeedStaff | undefined {
 }
 
 export const handlers = [
-  http.post('/api/auth/login', async ({ request }) => {
+  http.post(`${API_BASE}/auth/login`, async ({ request }) => {
     await delay(150)
     const { email, password } = (await request.json()) as { email?: string; password?: string }
     const user = staff.find((u) => u.email.toLowerCase() === email?.trim().toLowerCase())
@@ -45,7 +46,7 @@ export const handlers = [
     return sessionResponse(user)
   }),
 
-  http.post('/api/auth/mfa', async ({ request }) => {
+  http.post(`${API_BASE}/auth/mfa`, async ({ request }) => {
     await delay(150)
     const { challengeId, code } = (await request.json()) as { challengeId?: string; code?: string }
     const user = challengeId?.startsWith(CHALLENGE_PREFIX) ? findActive(challengeId.slice(CHALLENGE_PREFIX.length)) : undefined
@@ -54,21 +55,21 @@ export const handlers = [
   }),
 
   // Restores the session after a page reload from the httpOnly cookie.
-  http.post('/api/auth/refresh', async ({ cookies }) => {
+  http.post(`${API_BASE}/auth/refresh`, async ({ cookies }) => {
     await delay(100)
     const token = cookies[REFRESH_COOKIE]
     const user = token?.startsWith(REFRESH_PREFIX) ? findActive(token.slice(REFRESH_PREFIX.length)) : undefined
     return user ? sessionResponse(user) : unauthorized('Session expired.')
   }),
 
-  http.post('/api/auth/logout', () =>
+  http.post(`${API_BASE}/auth/logout`, () =>
     new HttpResponse(null, {
       status: 204,
       headers: { 'Set-Cookie': `${REFRESH_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT` },
     }),
   ),
 
-  http.get('/api/permissions', async ({ request }) => {
+  http.get(`${API_BASE}/permissions`, async ({ request }) => {
     await delay(100)
     if (!bearerUser(request)) return unauthorized('Sign in required.')
     return HttpResponse.json(permissions)
