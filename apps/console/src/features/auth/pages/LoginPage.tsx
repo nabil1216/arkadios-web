@@ -41,6 +41,7 @@ function CredentialsForm({ onChallenge }: { onChallenge: (id: string) => void })
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<Credentials>({ resolver: zodResolver(credentialsSchema) })
 
@@ -50,6 +51,13 @@ function CredentialsForm({ onChallenge }: { onChallenge: (id: string) => void })
       const res = await login(values.email, values.password)
       onChallenge(res.challengeId)
     } catch (e) {
+      // Field errors from the server (a 400 ProblemDetails) land on the fields.
+      const fields = e instanceof ApiError ? e.errors : undefined
+      const email = fields?.email?.[0]
+      const password = fields?.password?.[0]
+      if (email) setError('email', { message: email })
+      if (password) setError('password', { message: password })
+      if (email || password) return
       setFormError(e instanceof ApiError && e.status === 401 ? 'Incorrect email or password.' : 'Could not sign in. Try again.')
     }
   })

@@ -1,14 +1,13 @@
 import { delay, http, HttpResponse } from 'msw'
 import type { SessionResponse } from '@/features/auth/api/types'
 import { API_BASE } from '@/lib/api'
+import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
 import { DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
 
 const ACCESS_PREFIX = 'mock-access.'
 const REFRESH_COOKIE = 'refresh_token'
 const REFRESH_PREFIX = 'mock-refresh.'
 const CHALLENGE_PREFIX = 'mock-challenge.'
-
-const unauthorized = (message: string) => HttpResponse.json({ message }, { status: 401 })
 
 function findActive(id: string): SeedStaff | undefined {
   return staff.find((u) => u.id === id && u.status === 'active')
@@ -37,11 +36,15 @@ function bearerUser(request: Request): SeedStaff | undefined {
 export const handlers = [
   http.post(`${API_BASE}/auth/login`, async ({ request }) => {
     await delay(150)
-    const { email, password } = (await request.json()) as { email?: string; password?: string }
-    const user = staff.find((u) => u.email.toLowerCase() === email?.trim().toLowerCase())
-    if (!user || user.status !== 'active' || password !== DEMO_PASSWORD) {
-      return unauthorized('Incorrect email or password.')
+    const { email, password } = (await request.json()) as { email?: unknown; password?: unknown }
+    const errors: Record<string, string[]> = {}
+    if (typeof email !== 'string' || !email.trim()) errors.email = ['Email is required.']
+    if (typeof password !== 'string' || !password) errors.password = ['Password is required.']
+    if (Object.keys(errors).length) {
+      return problem(400, 'validation', 'One or more validation errors occurred.', { errors })
     }
+    const user = staff.find((u) => u.email.toLowerCase() === (email as string).trim().toLowerCase())
+    if (!user || user.status !== 'active' || password !== DEMO_PASSWORD) return signInFailed()
     return HttpResponse.json({ challengeId: CHALLENGE_PREFIX + user.id })
   }),
 
@@ -49,7 +52,7 @@ export const handlers = [
     await delay(150)
     const { challengeId, code } = (await request.json()) as { challengeId?: string; code?: string }
     const user = challengeId?.startsWith(CHALLENGE_PREFIX) ? findActive(challengeId.slice(CHALLENGE_PREFIX.length)) : undefined
-    if (!user || code !== DEMO_CODE) return unauthorized('That code is not right.')
+    if (!user || code !== DEMO_CODE) return verificationFailed()
     return sessionResponse(user)
   }),
 
@@ -58,7 +61,7 @@ export const handlers = [
     await delay(100)
     const token = cookies[REFRESH_COOKIE]
     const user = token?.startsWith(REFRESH_PREFIX) ? findActive(token.slice(REFRESH_PREFIX.length)) : undefined
-    return user ? sessionResponse(user) : unauthorized('Session expired.')
+    return user ? sessionResponse(user) : sessionExpired()
   }),
 
   http.post(`${API_BASE}/auth/logout`, () =>
@@ -70,7 +73,7 @@ export const handlers = [
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {
     await delay(100)
-    if (!bearerUser(request)) return unauthorized('Sign in required.')
+    if (!bearerUser(request)) return signInRequired()
     return HttpResponse.json(permissions)
   }),
 ]

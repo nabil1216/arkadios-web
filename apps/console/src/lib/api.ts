@@ -1,12 +1,44 @@
 /** Platform API base (docs/ARCHITECTURE.md, Wire conventions). */
 export const API_BASE = '/api/platform/v1'
 
-export class ApiError extends Error {
+/** RFC 9457 problem details, as the API returns them (docs/ARCHITECTURE.md, Wire conventions). */
+export interface ProblemDetails {
+  type?: string
+  title: string
   status: number
-  constructor(status: number, message: string) {
-    super(message)
+  detail?: string
+  traceId?: string
+  /** Validation errors: field name to messages. */
+  errors?: Record<string, string[]>
+}
+
+export class ApiError extends Error {
+  readonly problem: ProblemDetails
+  constructor(problem: ProblemDetails) {
+    super(problem.detail ?? problem.title)
     this.name = 'ApiError'
-    this.status = status
+    this.problem = problem
+  }
+  get status() {
+    return this.problem.status
+  }
+  get errors() {
+    return this.problem.errors
+  }
+  get traceId() {
+    return this.problem.traceId
+  }
+}
+
+async function readProblem(res: Response): Promise<ProblemDetails> {
+  const fallback: ProblemDetails = { title: res.statusText || 'Request failed', status: res.status }
+  if (!res.headers.get('Content-Type')?.includes('json')) return fallback
+  try {
+    const body = (await res.json()) as Partial<ProblemDetails>
+    if (typeof body.title !== 'string') return fallback
+    return { ...body, title: body.title, status: typeof body.status === 'number' ? body.status : res.status }
+  } catch {
+    return fallback
   }
 }
 
@@ -47,15 +79,6 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
     const token = await hooks.refresh()
     if (token) res = await send(path, opts, token)
   }
-  if (!res.ok) {
-    let message = res.statusText
-    try {
-      const data = (await res.json()) as { message?: string }
-      if (data.message) message = data.message
-    } catch {
-      // no JSON body
-    }
-    throw new ApiError(res.status, message)
-  }
+  if (!res.ok) throw new ApiError(await readProblem(res))
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
