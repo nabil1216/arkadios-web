@@ -37,7 +37,7 @@ export async function restoreSession() {
   if (!session) sessionStore.setAnonymous()
 }
 
-export async function signOut(reason?: SignOutReason) {
+export async function signOut(reason: SignOutReason = 'user') {
   try {
     await api('/auth/logout', { method: 'POST', body: {}, anonymous: true })
   } catch {
