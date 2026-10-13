@@ -9,9 +9,15 @@ export type Area =
   | 'support'
   | 'access'
 
-export type Level = 'manage' | 'view' | 'none'
+export type Action = 'view' | 'manage'
 
-export type PermissionMatrix = Record<Area, Record<Role, Level>>
+/** Wire format of GET /api/permissions: "<area>.<action>". `manage` implies `view`. */
+export type PermissionKey = `${Area}.${Action}`
+
+export type PermissionMap = Record<Role, PermissionKey[]>
+
+/** What a role can do in an area, derived from its keys. */
+export type Level = 'manage' | 'view' | 'none'
 
 // Hand-written until packages/api-client is generated; replace then.
 export interface StaffUser {

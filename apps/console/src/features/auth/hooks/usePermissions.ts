@@ -4,7 +4,7 @@ import type { Area } from '../api/types'
 import { canManage, canView, levelOf } from './permissions'
 import { useSession } from './session'
 
-/** The role matrix from GET /api/permissions plus the signed-in role. */
+/** The keys per role from GET /api/permissions plus the signed-in role. */
 export function usePermissionMatrix() {
   const session = useSession()
   const query = useQuery({
@@ -13,7 +13,7 @@ export function usePermissionMatrix() {
     enabled: session.status === 'authenticated',
   })
   return {
-    matrix: query.data,
+    permissions: query.data,
     role: session.status === 'authenticated' ? session.user.role : undefined,
     isPending: query.isPending,
     isError: query.isError,
@@ -23,11 +23,11 @@ export function usePermissionMatrix() {
 
 /** UI checks are cosmetic; the server is the authority. */
 export function usePermission(area: Area) {
-  const { matrix, role, isPending } = usePermissionMatrix()
+  const { permissions, role, isPending } = usePermissionMatrix()
   return {
     isPending,
-    level: levelOf(matrix, role, area),
-    canView: canView(matrix, role, area),
-    canManage: canManage(matrix, role, area),
+    level: levelOf(permissions, role, area),
+    canView: canView(permissions, role, area),
+    canManage: canManage(permissions, role, area),
   }
 }

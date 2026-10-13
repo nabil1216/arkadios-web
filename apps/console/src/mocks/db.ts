@@ -1,7 +1,7 @@
 // Seed data for the mocked API. Values follow seed() in
-// docs/handoff/platform-console/assets/platform.js. The role matrix lives
-// here only; the app reads it through GET /api/permissions.
-import type { PermissionMatrix, Role } from '@/features/auth/api/types'
+// docs/handoff/platform-console/assets/platform.js. The permission keys per
+// role live here only; the app reads them through GET /api/permissions.
+import type { PermissionMap, Role } from '@/features/auth/api/types'
 
 export const DEMO_PASSWORD = 'demo-1234'
 export const DEMO_CODE = '123456'
@@ -32,12 +32,14 @@ export const homeByRole: Record<Role, string> = {
   auditor: '/overview',
 }
 
-export const permissions: PermissionMatrix = {
-  tenants: { admin: 'manage', support: 'view', billing: 'view', auditor: 'view' },
-  plans: { admin: 'manage', support: 'view', billing: 'view', auditor: 'view' },
-  billing: { admin: 'manage', support: 'view', billing: 'manage', auditor: 'view' },
-  transactions: { admin: 'manage', support: 'none', billing: 'manage', auditor: 'view' },
-  sms: { admin: 'manage', support: 'manage', billing: 'none', auditor: 'none' },
-  support: { admin: 'manage', support: 'manage', billing: 'none', auditor: 'view' },
-  access: { admin: 'manage', support: 'none', billing: 'none', auditor: 'view' },
+/**
+ * Permission keys per role (GET /api/permissions). `<area>.manage` implies
+ * `<area>.view`, so roles list only their highest key per area.
+ * Mirrors s.perms in the demo's seed().
+ */
+export const permissions: PermissionMap = {
+  admin: ['tenants.manage', 'plans.manage', 'billing.manage', 'transactions.manage', 'sms.manage', 'support.manage', 'access.manage'],
+  support: ['tenants.view', 'plans.view', 'billing.view', 'sms.manage', 'support.manage'],
+  billing: ['tenants.view', 'plans.view', 'billing.manage', 'transactions.manage'],
+  auditor: ['tenants.view', 'plans.view', 'billing.view', 'transactions.view', 'support.view', 'access.view'],
 }

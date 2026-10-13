@@ -1,6 +1,6 @@
-// Labels and pure helpers only. The role matrix itself comes from
+// Labels and pure helpers only. The permission keys per role come from
 // GET /api/permissions; it is never defined in the app.
-import type { Area, Level, PermissionMatrix, Role } from '../api/types'
+import type { Area, Level, PermissionKey, PermissionMap, Role } from '../api/types'
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: 'Super admin',
@@ -19,27 +19,32 @@ export const AREA_LABELS: Record<Area, string> = {
   access: 'Access control',
 }
 
+/** True when the role holds the key. `<area>.manage` also grants `<area>.view`. */
+export function hasPermission(
+  map: PermissionMap | undefined,
+  role: Role | undefined,
+  key: PermissionKey,
+): boolean {
+  const keys = map && role ? map[role] : undefined
+  if (!keys) return false
+  if (keys.includes(key)) return true
+  return key.endsWith('.view') && keys.includes(`${key.slice(0, -'.view'.length)}.manage` as PermissionKey)
+}
+
 export function levelOf(
-  matrix: PermissionMatrix | undefined,
+  map: PermissionMap | undefined,
   role: Role | undefined,
   area: Area,
 ): Level {
-  if (!matrix || !role) return 'none'
-  return matrix[area]?.[role] ?? 'none'
+  if (hasPermission(map, role, `${area}.manage`)) return 'manage'
+  if (hasPermission(map, role, `${area}.view`)) return 'view'
+  return 'none'
 }
 
-export function canView(
-  matrix: PermissionMatrix | undefined,
-  role: Role | undefined,
-  area: Area,
-): boolean {
-  return levelOf(matrix, role, area) !== 'none'
+export function canView(map: PermissionMap | undefined, role: Role | undefined, area: Area): boolean {
+  return hasPermission(map, role, `${area}.view`)
 }
 
-export function canManage(
-  matrix: PermissionMatrix | undefined,
-  role: Role | undefined,
-  area: Area,
-): boolean {
-  return levelOf(matrix, role, area) === 'manage'
+export function canManage(map: PermissionMap | undefined, role: Role | undefined, area: Area): boolean {
+  return hasPermission(map, role, `${area}.manage`)
 }

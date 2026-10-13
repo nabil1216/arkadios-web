@@ -8,7 +8,7 @@ import { canView } from '../hooks/permissions'
 
 /** Cosmetic route guard for one area; the server is the authority. */
 export function RequireArea({ area }: { area: Area }) {
-  const { matrix, role, isPending, isError, refetch } = usePermissionMatrix()
+  const { permissions, role, isPending, isError, refetch } = usePermissionMatrix()
 
   if (isPending) {
     return (
@@ -18,7 +18,7 @@ export function RequireArea({ area }: { area: Area }) {
     )
   }
 
-  if (isError || !matrix) {
+  if (isError || !permissions) {
     return (
       <>
         <PageHeader title="Could not load permissions" />
@@ -32,5 +32,5 @@ export function RequireArea({ area }: { area: Area }) {
     )
   }
 
-  return canView(matrix, role, area) ? <Outlet /> : <NoAccessPage area={area} />
+  return canView(permissions, role, area) ? <Outlet /> : <NoAccessPage area={area} />
 }

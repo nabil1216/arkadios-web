@@ -7,9 +7,9 @@ import { NAV } from '../nav'
 import type { StaffUser } from '@/features/auth/api/types'
 
 export function Sidebar({ user }: { user: StaffUser }) {
-  const { matrix } = usePermissionMatrix()
-  // Until the matrix arrives only the Overview (open to all staff) is shown.
-  const items = NAV.filter((n) => n.area === null || canView(matrix, user.role, n.area))
+  const { permissions } = usePermissionMatrix()
+  // Until the permissions arrive only the Overview (open to all staff) is shown.
+  const items = NAV.filter((n) => n.area === null || canView(permissions, user.role, n.area))
 
   return (
     <aside

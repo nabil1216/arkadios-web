@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import { makeSession, renderRoutes } from '@/test/render'
 import { fetchPermissions } from '../api/permissions'
-import type { PermissionMatrix } from '../api/types'
+import type { PermissionMap } from '../api/types'
 import { sessionStore } from '../hooks/session'
 import { RequireArea } from './RequireArea'
 
@@ -12,16 +12,13 @@ vi.mock('../api/permissions', () => ({
   fetchPermissions: vi.fn(),
 }))
 
-// Made up for the test; the real matrix comes from GET /api/permissions.
-const matrix = {
-  tenants: { admin: 'manage', support: 'view', billing: 'view', auditor: 'view' },
-  sms: { admin: 'manage', support: 'manage', billing: 'none', auditor: 'none' },
-  plans: { admin: 'manage', support: 'view', billing: 'view', auditor: 'view' },
-  billing: { admin: 'manage', support: 'view', billing: 'manage', auditor: 'view' },
-  transactions: { admin: 'manage', support: 'none', billing: 'manage', auditor: 'view' },
-  support: { admin: 'manage', support: 'manage', billing: 'none', auditor: 'view' },
-  access: { admin: 'manage', support: 'none', billing: 'none', auditor: 'view' },
-} satisfies PermissionMatrix
+// Made up for the test; the real keys come from GET /api/permissions.
+const map: PermissionMap = {
+  admin: ['transactions.manage'],
+  support: ['tenants.view'],
+  billing: ['transactions.manage'],
+  auditor: ['transactions.view'],
+}
 
 const routes = [
   {
@@ -46,14 +43,14 @@ describe('RequireArea', () => {
 
   it('renders the page when the role can view the area', async () => {
     sessionStore.setSession(makeSession('billing'))
-    vi.mocked(fetchPermissions).mockResolvedValue(matrix)
+    vi.mocked(fetchPermissions).mockResolvedValue(map)
     renderRoutes(routes, '/transactions')
     expect(await screen.findByText('Transactions page')).toBeInTheDocument()
   })
 
   it('shows No access, with a link home, when the role has no level', async () => {
     sessionStore.setSession(makeSession('support'))
-    vi.mocked(fetchPermissions).mockResolvedValue(matrix)
+    vi.mocked(fetchPermissions).mockResolvedValue(map)
     renderRoutes(routes, '/transactions')
     expect(await screen.findByRole('heading', { name: 'No access' })).toBeInTheDocument()
     expect(screen.getByText(/does not include Transactions/)).toBeInTheDocument()
@@ -64,7 +61,7 @@ describe('RequireArea', () => {
   it('does not link home to an unsafe server path', async () => {
     const session = makeSession('support')
     sessionStore.setSession({ ...session, user: { ...session.user, home: 'https://evil.example/' } })
-    vi.mocked(fetchPermissions).mockResolvedValue(matrix)
+    vi.mocked(fetchPermissions).mockResolvedValue(map)
     renderRoutes(routes, '/transactions')
     expect(await screen.findByRole('link', { name: 'Go to your home page' })).toHaveAttribute('href', '/overview')
   })
