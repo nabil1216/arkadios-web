@@ -1,20 +1,6 @@
-// Types and pure helpers only. The role matrix itself comes from
+// Labels and pure helpers only. The role matrix itself comes from
 // GET /api/permissions; it is never defined in the app.
-
-export type Role = 'admin' | 'support' | 'billing' | 'auditor'
-
-export type Area =
-  | 'tenants'
-  | 'plans'
-  | 'billing'
-  | 'transactions'
-  | 'sms'
-  | 'support'
-  | 'access'
-
-export type Level = 'manage' | 'view' | 'none'
-
-export type PermissionMatrix = Record<Area, Record<Role, Level>>
+import type { Area, Level, PermissionMatrix, Role } from '../api/types'
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: 'Super admin',

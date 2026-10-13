@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider, type RouteObject } from 'react-router'
-import type { SessionResponse } from '@/features/auth/types'
+import type { SessionResponse } from '@/features/auth/api/types'
 
 export function makeSession(role: SessionResponse['user']['role'] = 'support'): SessionResponse {
   return {

@@ -1,10 +1,10 @@
 import { NavLink } from 'react-router'
 import { usePermissionMatrix } from '@/features/auth/hooks/usePermissions'
-import { canView, ROLE_LABELS } from '@/features/auth/permissions'
+import { canView, ROLE_LABELS } from '@/features/auth/hooks/permissions'
 import { signOut } from '@/features/auth/api/auth'
 import { cn } from '@/lib/utils'
 import { NAV } from '../nav'
-import type { StaffUser } from '@/features/auth/types'
+import type { StaffUser } from '@/features/auth/api/types'
 
 export function Sidebar({ user }: { user: StaffUser }) {
   const { matrix } = usePermissionMatrix()

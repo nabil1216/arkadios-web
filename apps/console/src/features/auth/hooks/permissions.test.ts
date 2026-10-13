@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { canManage, canView, levelOf, type PermissionMatrix } from './permissions'
+import type { PermissionMatrix } from '../api/types'
+import { canManage, canView, levelOf } from './permissions'
 
 // A small matrix made up for the test. The real one comes from GET /api/permissions.
 const matrix = {

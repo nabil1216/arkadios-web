@@ -9,7 +9,7 @@ import {
   Receipt,
   type LucideIcon,
 } from 'lucide-react'
-import type { Area } from '@/features/auth/permissions'
+import type { Area } from '@/features/auth/api/types'
 
 export interface NavItem {
   to: string

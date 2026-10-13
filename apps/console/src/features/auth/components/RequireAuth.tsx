@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { PageSpinner } from '@/components/PageSpinner'
-import { useSession } from '../session'
+import { useSession } from '../hooks/session'
 
 /** Cosmetic route guard: the server still checks every request. */
 export function RequireAuth() {

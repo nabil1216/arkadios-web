@@ -1,4 +1,17 @@
-import type { Role } from './permissions'
+export type Role = 'admin' | 'support' | 'billing' | 'auditor'
+
+export type Area =
+  | 'tenants'
+  | 'plans'
+  | 'billing'
+  | 'transactions'
+  | 'sms'
+  | 'support'
+  | 'access'
+
+export type Level = 'manage' | 'view' | 'none'
+
+export type PermissionMatrix = Record<Area, Record<Role, Level>>
 
 // Hand-written until packages/api-client is generated; replace then.
 export interface StaffUser {

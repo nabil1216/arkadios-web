@@ -1,8 +1,9 @@
 import { Link } from 'react-router'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
-import { AREA_LABELS, ROLE_LABELS, type Area } from '../permissions'
-import { useSession } from '../session'
+import type { Area } from '../api/types'
+import { AREA_LABELS, ROLE_LABELS } from '../hooks/permissions'
+import { useSession } from '../hooks/session'
 
 export function NoAccessPage({ area }: { area: Area }) {
   const session = useSession()

@@ -1,6 +1,6 @@
 import { PageHeader } from '@/components/PageHeader'
-import { ROLE_LABELS } from '@/features/auth/permissions'
-import { useSession } from '@/features/auth/session'
+import { ROLE_LABELS } from '@/features/auth/hooks/permissions'
+import { useSession } from '@/features/auth/hooks/session'
 
 export default function OverviewPage() {
   const session = useSession()

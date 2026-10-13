@@ -1,7 +1,7 @@
 // Seed data for the mocked API. Values follow seed() in
 // docs/handoff/platform-console/assets/platform.js. The role matrix lives
 // here only; the app reads it through GET /api/permissions.
-import type { PermissionMatrix, Role } from '@/features/auth/permissions'
+import type { PermissionMatrix, Role } from '@/features/auth/api/types'
 
 export const DEMO_PASSWORD = 'demo-1234'
 export const DEMO_CODE = '123456'

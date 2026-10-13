@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { makeSession, renderRoutes } from '@/test/render'
-import { sessionStore } from '../session'
+import { sessionStore } from '../hooks/session'
 import { RequireAuth } from './RequireAuth'
 
 const routes = [

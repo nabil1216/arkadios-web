@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchPermissions, permissionsKey } from '../api/permissions'
-import { canManage, canView, levelOf, type Area } from '../permissions'
-import { useSession } from '../session'
+import type { Area } from '../api/types'
+import { canManage, canView, levelOf } from './permissions'
+import { useSession } from './session'
 
 /** The role matrix from GET /api/permissions plus the signed-in role. */
 export function usePermissionMatrix() {

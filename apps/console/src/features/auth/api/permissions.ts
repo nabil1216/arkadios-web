@@ -1,5 +1,5 @@
 import { api } from '@/lib/api'
-import type { PermissionMatrix } from '../permissions'
+import type { PermissionMatrix } from './types'
 
 export const permissionsKey = ['auth', 'permissions'] as const
 

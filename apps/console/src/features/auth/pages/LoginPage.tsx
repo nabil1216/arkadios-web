@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { ApiError } from '@/lib/api'
 import { safeNext } from '@/lib/safe-redirect'
 import { login, startSession, verifyMfa } from '../api/auth'
-import { useSession } from '../session'
+import { useSession } from '../hooks/session'
 
 const credentialsSchema = z.object({
   email: z.email('Enter a valid email address'),

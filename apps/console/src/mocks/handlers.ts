@@ -1,5 +1,5 @@
 import { delay, http, HttpResponse } from 'msw'
-import type { SessionResponse } from '@/features/auth/types'
+import type { SessionResponse } from '@/features/auth/api/types'
 import { DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
 
 const ACCESS_PREFIX = 'mock-access.'

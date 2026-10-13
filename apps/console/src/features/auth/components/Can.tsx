@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Area } from '../permissions'
+import type { Area } from '../api/types'
 import { usePermission } from '../hooks/usePermissions'
 
 interface CanProps {

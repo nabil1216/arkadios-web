@@ -3,7 +3,8 @@ import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { usePermissionMatrix } from '../hooks/usePermissions'
 import { NoAccessPage } from '../pages/NoAccessPage'
-import { canView, type Area } from '../permissions'
+import type { Area } from '../api/types'
+import { canView } from '../hooks/permissions'
 
 /** Cosmetic route guard for one area; the server is the authority. */
 export function RequireArea({ area }: { area: Area }) {

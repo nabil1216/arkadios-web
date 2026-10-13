@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import { makeSession, renderRoutes } from '@/test/render'
 import { fetchPermissions } from '../api/permissions'
-import type { PermissionMatrix } from '../permissions'
-import { sessionStore } from '../session'
+import type { PermissionMatrix } from '../api/types'
+import { sessionStore } from '../hooks/session'
 import { RequireArea } from './RequireArea'
 
 vi.mock('../api/permissions', () => ({

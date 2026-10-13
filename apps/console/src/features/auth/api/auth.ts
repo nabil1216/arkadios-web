@@ -1,7 +1,7 @@
 import { api, configureApi } from '@/lib/api'
 import { queryClient } from '@/lib/query-client'
-import { getAccessToken, sessionStore, type SignOutReason } from '../session'
-import type { LoginResponse, SessionResponse } from '../types'
+import { getAccessToken, sessionStore, type SignOutReason } from '../hooks/session'
+import type { LoginResponse, SessionResponse } from './types'
 
 export function login(email: string, password: string) {
   return api<LoginResponse>('/auth/login', { body: { email, password }, anonymous: true })

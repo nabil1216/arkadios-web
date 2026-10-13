@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router'
 import { safeNext } from '@/lib/safe-redirect'
-import { useSession } from '../session'
+import { useSession } from '../hooks/session'
 
 /** "/" sends each role to the home page the server chose for it. */
 export function HomeRedirect() {

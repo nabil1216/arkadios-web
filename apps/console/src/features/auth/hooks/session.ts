@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { SessionResponse } from './types'
+import type { SessionResponse } from '../api/types'
 
 // The session lives in memory only. The refresh token is an httpOnly cookie
 // that JS never reads; a page reload restores the session via POST /api/auth/refresh.
