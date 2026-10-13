@@ -1,5 +1,7 @@
 # Arkadios web: platform console (apps/console)
 
+Read docs/ARCHITECTURE.md first. It is the source of truth for design and wire conventions.
+
 Current scope: apps/console only.
 
 ## Stack
