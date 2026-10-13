@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { Navigate, type RouteObject } from 'react-router'
+import { PageSpinner } from '@/components/PageSpinner'
 import { HomeRedirect } from '@/features/auth/components/HomeRedirect'
 import { RequireArea } from '@/features/auth/components/RequireArea'
 import { RequireAuth } from '@/features/auth/components/RequireAuth'
@@ -15,6 +16,8 @@ export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   {
     element: <RequireAuth />,
+    // Shown while lazy page modules load on the first render.
+    HydrateFallback: PageSpinner,
     children: [
       {
         element: <AppShell />,
