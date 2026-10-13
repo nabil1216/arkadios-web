@@ -1,16 +1,13 @@
+import { Fragment } from 'react'
 import { NavLink } from 'react-router'
-import { usePermissionMatrix } from '@/features/auth/hooks/usePermissions'
-import { canView, ROLE_LABELS } from '@/features/auth/hooks/permissions'
+import { Can } from '@/features/auth/components/Can'
+import { ROLE_LABELS } from '@/features/auth/hooks/permissions'
 import { signOut } from '@/features/auth/api/auth'
 import { cn } from '@/lib/utils'
 import { NAV } from '../nav'
 import type { StaffUser } from '@/features/auth/api/types'
 
 export function Sidebar({ user }: { user: StaffUser }) {
-  const { permissions } = usePermissionMatrix()
-  // Until the permissions arrive only the Overview (open to all staff) is shown.
-  const items = NAV.filter((n) => n.area === null || canView(permissions, user.role, n.area))
-
   return (
     <aside
       aria-label="Platform console"
@@ -30,22 +27,31 @@ export function Sidebar({ user }: { user: StaffUser }) {
       </div>
 
       <nav aria-label="Platform" className="grid gap-0.5 max-[860px]:flex">
-        {items.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-md px-2.5 py-[9px] font-medium whitespace-nowrap text-graphite-text no-underline hover:bg-graphite-2 hover:text-white focus-visible:shadow-[0_0_0_3px_var(--sidebar-ring)]',
-                isActive &&
-                  'bg-graphite-2 text-white shadow-[inset_3px_0_0_var(--teal)] max-[860px]:shadow-[inset_0_-3px_0_var(--teal)]',
-              )
-            }
-          >
-            <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
-            <span>{label}</span>
-          </NavLink>
-        ))}
+        {NAV.map(({ to, label, icon: Icon, permission }) => {
+          const link = (
+            <NavLink
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-md px-2.5 py-[9px] font-medium whitespace-nowrap text-graphite-text no-underline hover:bg-graphite-2 hover:text-white focus-visible:shadow-[0_0_0_3px_var(--sidebar-ring)]',
+                  isActive &&
+                    'bg-graphite-2 text-white shadow-[inset_3px_0_0_var(--teal)] max-[860px]:shadow-[inset_0_-3px_0_var(--teal)]',
+                )
+              }
+            >
+              <Icon size={18} strokeWidth={1.7} aria-hidden="true" />
+              <span>{label}</span>
+            </NavLink>
+          )
+          // Until the permissions arrive only the Overview (open to all staff) shows.
+          return permission ? (
+            <Can key={to} permission={permission}>
+              {link}
+            </Can>
+          ) : (
+            <Fragment key={to}>{link}</Fragment>
+          )
+        })}
       </nav>
 
       <div className="mt-auto grid gap-2 px-2 text-[12.5px] text-graphite-muted max-[860px]:mt-0 max-[860px]:ml-auto max-[860px]:flex max-[860px]:items-center max-[860px]:gap-3.5">

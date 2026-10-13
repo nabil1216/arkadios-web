@@ -1,14 +1,13 @@
 import { Outlet } from 'react-router'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
-import { usePermissionMatrix } from '../hooks/usePermissions'
-import { NoAccessPage } from '../pages/NoAccessPage'
 import type { Area } from '../api/types'
-import { canView } from '../hooks/permissions'
+import { usePermission } from '../hooks/usePermission'
+import { NoAccessPage } from '../pages/NoAccessPage'
 
 /** Cosmetic route guard for one area; the server is the authority. */
 export function RequireArea({ area }: { area: Area }) {
-  const { permissions, role, isPending, isError, refetch } = usePermissionMatrix()
+  const { allowed, isPending, isError, refetch } = usePermission(`${area}.view`)
 
   if (isPending) {
     return (
@@ -18,7 +17,7 @@ export function RequireArea({ area }: { area: Area }) {
     )
   }
 
-  if (isError || !permissions) {
+  if (isError) {
     return (
       <>
         <PageHeader title="Could not load permissions" />
@@ -32,5 +31,5 @@ export function RequireArea({ area }: { area: Area }) {
     )
   }
 
-  return canView(permissions, role, area) ? <Outlet /> : <NoAccessPage area={area} />
+  return allowed ? <Outlet /> : <NoAccessPage area={area} />
 }

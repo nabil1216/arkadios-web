@@ -1,17 +1,15 @@
 import type { ReactNode } from 'react'
-import type { Area } from '../api/types'
-import { usePermission } from '../hooks/usePermissions'
+import type { PermissionKey } from '../api/types'
+import { usePermission } from '../hooks/usePermission'
 
 interface CanProps {
-  area: Area
-  /** `manage` (default) shows children only to roles that can change the area. */
-  level?: 'view' | 'manage'
+  permission: PermissionKey
   fallback?: ReactNode
   children: ReactNode
 }
 
-export function Can({ area, level = 'manage', fallback = null, children }: CanProps) {
-  const perm = usePermission(area)
-  const allowed = level === 'manage' ? perm.canManage : perm.canView
+/** Renders children only when the signed-in role holds the key. */
+export function Can({ permission, fallback = null, children }: CanProps) {
+  const { allowed } = usePermission(permission)
   return <>{allowed ? children : fallback}</>
 }
