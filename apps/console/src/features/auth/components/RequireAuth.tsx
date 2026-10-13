@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { PageSpinner } from '@/components/PageSpinner'
+import { safeNext } from '@/lib/safe-redirect'
 import { useSession } from '../hooks/session'
 
 /** Cosmetic route guard: the server still checks every request. */
@@ -12,7 +13,8 @@ export function RequireAuth() {
   if (session.status === 'anonymous') {
     const params = new URLSearchParams()
     // An explicit sign-out starts fresh; idle or expiry returns to the same page.
-    if (session.reason !== 'user' && pathname !== '/') params.set('next', pathname + search + hash)
+    const here = safeNext(pathname + search + hash)
+    if (session.reason !== 'user' && pathname !== '/' && here) params.set('next', here)
     const query = params.toString()
     return <Navigate to={query ? `/login?${query}` : '/login'} replace />
   }

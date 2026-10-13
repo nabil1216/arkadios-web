@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { redirectTarget } from '@/lib/safe-redirect'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import type { Area } from '../api/types'
@@ -20,7 +21,7 @@ export function NoAccessPage({ area }: { area: Area }) {
       </p>
       <p className="mt-4">
         <Button asChild variant="secondary">
-          <Link to={user.home}>Go to your home page</Link>
+          <Link to={redirectTarget(null, user.home)}>Go to your home page</Link>
         </Button>
       </p>
     </>

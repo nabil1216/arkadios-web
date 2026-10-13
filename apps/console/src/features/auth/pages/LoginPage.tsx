@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ApiError } from '@/lib/api'
-import { safeNext } from '@/lib/safe-redirect'
+import { redirectTarget } from '@/lib/safe-redirect'
 import { login, startSession, verifyMfa } from '../api/auth'
 import { useSession } from '../hooks/session'
 
@@ -142,7 +142,7 @@ export default function LoginPage() {
 
   if (session.status === 'loading') return <PageSpinner />
   if (session.status === 'authenticated') {
-    return <Navigate to={safeNext(params.get('next')) ?? session.user.home} replace />
+    return <Navigate to={redirectTarget(params.get('next'), session.user.home)} replace />
   }
 
   const notice = session.reason ? NOTICES[session.reason] : null

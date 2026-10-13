@@ -61,6 +61,14 @@ describe('RequireArea', () => {
     expect(screen.queryByText('Transactions page')).not.toBeInTheDocument()
   })
 
+  it('does not link home to an unsafe server path', async () => {
+    const session = makeSession('support')
+    sessionStore.setSession({ ...session, user: { ...session.user, home: 'https://evil.example/' } })
+    vi.mocked(fetchPermissions).mockResolvedValue(matrix)
+    renderRoutes(routes, '/transactions')
+    expect(await screen.findByRole('link', { name: 'Go to your home page' })).toHaveAttribute('href', '/overview')
+  })
+
   it('shows an error with retry when permissions fail to load', async () => {
     sessionStore.setSession(makeSession('billing'))
     vi.mocked(fetchPermissions).mockRejectedValue(new ApiError(500, 'boom'))

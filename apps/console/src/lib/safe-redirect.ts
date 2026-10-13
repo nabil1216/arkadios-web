@@ -19,3 +19,13 @@ export function safeNext(next: string | null | undefined): string | null {
     return null
   }
 }
+
+export const DEFAULT_HOME = '/overview'
+
+/**
+ * Every redirect target goes through here: `next` if it is safe, else the
+ * server-provided home if that is safe, else the console overview.
+ */
+export function redirectTarget(next: string | null | undefined, home?: string | null): string {
+  return safeNext(next) ?? safeNext(home) ?? DEFAULT_HOME
+}
