@@ -1,0 +1,37 @@
+# Arkadios web: platform console (apps/console)
+
+Current scope: apps/console only.
+
+## Stack
+React + TypeScript (strict) + Vite, React Router v7, TanStack Query/Table,
+React Hook Form + Zod, Tailwind v4 + shadcn/ui, MSW, Vitest, Playwright.
+Package manager: pnpm only. Never npm or npx in this repo.
+
+## Source of truth
+docs/handoff/ holds the approved HTML demos. Match layout, copy,
+roles, menus and states. Do not redesign.
+Console demo: docs/handoff/platform-console/
+Notes and rules: docs/handoff/docs/
+Existing checks to port: docs/handoff/tests/
+
+## Rules
+- Feature folders: src/features/<name>/{api,components,pages,hooks}.
+- API types come ONLY from the generated client in packages/api-client.
+  No hand-written API types once that client exists.
+- Access token and session live in memory only. Never localStorage or
+  sessionStorage. Refresh token is an httpOnly cookie, JS never touches
+  it. Page reload restores the session through POST /api/auth/refresh.
+- Permissions: usePermission() and <Can>. Menu and buttons come from
+  permission keys. UI checks are cosmetic; the server is the authority.
+  The role matrix comes from the API (GET /api/permissions), never
+  hard-coded in the app.
+- Redirect targets (`next`) must be relative paths only.
+- Clear TanStack Query cache on logout.
+- No dangerouslySetInnerHTML. Forms use Zod schemas.
+- Every list: loading, empty, error state. Every mutation: invalidate
+  its feature query key.
+- API calls go through MSW handlers until real endpoints exist.
+- Small commits, one per plan item.
+
+## Done means
+Typecheck, lint, unit tests and the matching Playwright checks pass.
