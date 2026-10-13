@@ -31,6 +31,8 @@ export interface StaffUser {
 
 export interface SessionResponse {
   accessToken: string
+  /** Access token lifetime in seconds; the client refreshes shortly before it ends. */
+  expiresIn: number
   idleMinutes: number
   user: StaffUser
 }

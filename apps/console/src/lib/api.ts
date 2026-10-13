@@ -1,3 +1,6 @@
+/** Sent on refresh and logout; the server answers 403 without it (on top of SameSite cookies). */
+export const CSRF_HEADER = { name: 'X-Requested-With', value: 'arkadios-web' } as const
+
 /** Platform API base (docs/ARCHITECTURE.md, Wire conventions). */
 export const API_BASE = '/api/platform/v1'
 
@@ -59,12 +62,15 @@ interface RequestOptions {
   body?: unknown
   /** Skip the bearer token and the 401 refresh retry (login, refresh). */
   anonymous?: boolean
+  /** Add the CSRF header (refresh, logout). */
+  csrf?: boolean
 }
 
 async function send(path: string, opts: RequestOptions, token: string | null) {
   const headers: Record<string, string> = {}
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (token) headers.Authorization = `Bearer ${token}`
+  if (opts.csrf) headers[CSRF_HEADER.name] = CSRF_HEADER.value
   return fetch(`${API_BASE}${path}`, {
     method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
     headers,

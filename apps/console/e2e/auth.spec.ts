@@ -43,6 +43,28 @@ test.describe('guard and sign-in', () => {
     await expect(page.getByLabel('Email')).toBeVisible()
   })
 
+  test('the refresh cookie rotates: several reloads in a row keep the session', async ({ page }) => {
+    await signIn(page, accounts.support)
+    for (let i = 0; i < 3; i++) {
+      await page.reload()
+      await expect(page.getByRole('navigation', { name: 'Platform' })).toBeVisible()
+    }
+    await expect(page).toHaveURL(/\/tenants$/)
+  })
+
+  test('refresh and logout send X-Requested-With: arkadios-web', async ({ page }) => {
+    const seen: Record<string, string | undefined> = {}
+    page.on('request', (r) => {
+      if (/\/auth\/(refresh|logout)$/.test(r.url())) seen[new URL(r.url()).pathname.split('/').pop()!] = r.headers()['x-requested-with']
+    })
+    await signIn(page, accounts.admin)
+    await page.reload()
+    await expect(page.getByRole('navigation', { name: 'Platform' })).toBeVisible()
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    await expect(page).toHaveURL(/\/login$/)
+    expect(seen).toEqual({ refresh: 'arkadios-web', logout: 'arkadios-web' })
+  })
+
   test('the session is never written to sessionStorage or localStorage by the app', async ({ page }) => {
     await signIn(page, accounts.admin)
     const storage = await page.evaluate(() => ({

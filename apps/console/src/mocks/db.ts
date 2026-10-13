@@ -6,6 +6,8 @@ import type { PermissionMap, Role } from '@/features/auth/api/types'
 export const DEMO_PASSWORD = 'demo-1234'
 export const DEMO_CODE = '123456'
 export const IDLE_MINUTES = 30
+/** Access token lifetime; the architecture asks for 10 to 15 minutes. */
+export const ACCESS_TOKEN_SECONDS = 900
 
 // MFA is required for every platform user (docs/ARCHITECTURE.md, section 5),
 // so staff have no per-user MFA switch.

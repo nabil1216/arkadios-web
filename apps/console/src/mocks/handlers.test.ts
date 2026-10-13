@@ -82,3 +82,78 @@ describe('GET /permissions', () => {
     expect(await res.json()).toMatchObject({ admin: expect.arrayContaining(['tenants.manage']) })
   })
 })
+
+const CSRF = { 'X-Requested-With': 'arkadios-web' }
+const cookieOf = (res: Response) => /refresh_token=([^;]*)/.exec(res.headers.get('Set-Cookie') ?? '')?.[1]
+const refresh = (cookie?: string, headers: Record<string, string> = CSRF) =>
+  post('/auth/refresh', {}, { ...headers, ...(cookie ? { Cookie: `refresh_token=${cookie}` } : {}) })
+
+describe('session response', () => {
+  it('includes expiresIn in seconds and sets an httpOnly refresh cookie', async () => {
+    const res = await post('/auth/mfa', { challengeId: 'mock-challenge.u2', code: DEMO_CODE })
+    expect(await res.json()).toMatchObject({ expiresIn: 900 })
+    expect(res.headers.get('Set-Cookie')).toMatch(/HttpOnly/)
+  })
+})
+
+describe('refresh and logout CSRF header', () => {
+  it('refuses refresh without X-Requested-With: arkadios-web', async () => {
+    const login = await post('/auth/mfa', { challengeId: 'mock-challenge.u3', code: DEMO_CODE })
+    const body = await expectProblem(await refresh(cookieOf(login), {}), 403)
+    expect(body.type).toContain('csrf')
+  })
+
+  it('refuses a wrong header value', async () => {
+    await expectProblem(await refresh('mock-refresh.u3.1', { 'X-Requested-With': 'something-else' }), 403)
+  })
+
+  it('refuses logout without the header and accepts it with the header', async () => {
+    await expectProblem(await post('/auth/logout', {}), 403)
+    const ok = await post('/auth/logout', {}, CSRF)
+    expect(ok.status).toBe(204)
+    expect(ok.headers.get('Set-Cookie')).toMatch(/Max-Age=0/)
+  })
+})
+
+describe('POST /auth/refresh rotation', () => {
+  it('rejects a request with no refresh cookie', async () => {
+    await expectProblem(await refresh(undefined), 401)
+  })
+
+  it('issues the next cookie version on every refresh', async () => {
+    const login = await post('/auth/mfa', { challengeId: 'mock-challenge.u3', code: DEMO_CODE })
+    const first = cookieOf(login)!
+    const res = await refresh(first)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ expiresIn: 900, user: { id: 'u3' } })
+    const second = cookieOf(res)!
+    expect(second).not.toBe(first)
+    expect((await refresh(second)).status).toBe(200)
+  })
+
+  it('treats a replayed old cookie as theft and ends the whole session', async () => {
+    const login = await post('/auth/mfa', { challengeId: 'mock-challenge.u2', code: DEMO_CODE })
+    const v1 = cookieOf(login)!
+    const v2 = cookieOf(await refresh(v1))!
+
+    const replay = await refresh(v1)
+    await expectProblem(replay, 401)
+    expect(replay.headers.get('Set-Cookie')).toMatch(/Max-Age=0/)
+
+    // the newest cookie is dead too
+    await expectProblem(await refresh(v2), 401)
+  })
+
+  it('lets the user sign in again after a revoked session', async () => {
+    const login = await post('/auth/mfa', { challengeId: 'mock-challenge.u2', code: DEMO_CODE })
+    const v1 = cookieOf(login)!
+    await refresh(v1)
+    await refresh(v1) // replay: revoked
+    const again = await post('/auth/mfa', { challengeId: 'mock-challenge.u2', code: DEMO_CODE })
+    expect((await refresh(cookieOf(again))).status).toBe(200)
+  })
+
+  it('rejects a user who is no longer active', async () => {
+    await expectProblem(await refresh('mock-refresh.u5.1'), 401)
+  })
+})
