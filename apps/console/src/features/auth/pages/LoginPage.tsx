@@ -48,8 +48,7 @@ function CredentialsForm({ onChallenge }: { onChallenge: (id: string) => void })
     setFormError(null)
     try {
       const res = await login(values.email, values.password)
-      if (res.mfaRequired) onChallenge(res.challengeId)
-      else startSession(res)
+      onChallenge(res.challengeId)
     } catch (e) {
       setFormError(e instanceof ApiError && e.status === 401 ? 'Incorrect email or password.' : 'Could not sign in. Try again.')
     }

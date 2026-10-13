@@ -35,6 +35,7 @@ export interface SessionResponse {
   user: StaffUser
 }
 
-export type LoginResponse =
-  | ({ mfaRequired: false } & SessionResponse)
-  | { mfaRequired: true; challengeId: string }
+/** Every platform user must pass MFA, so sign-in never returns a session directly. */
+export interface LoginResponse {
+  challengeId: string
+}

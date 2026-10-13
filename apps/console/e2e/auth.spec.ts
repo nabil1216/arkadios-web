@@ -82,10 +82,16 @@ test.describe('MFA', () => {
     await expect(page.getByText('Enter the 6-digit code')).toBeVisible()
   })
 
-  test('an auditor with no MFA set up skips the code', async ({ page }) => {
-    await signIn(page, accounts.auditor)
-    await expect(page).toHaveURL(/\/overview$/)
-  })
+  for (const [role, account] of Object.entries(accounts)) {
+    test(`${role} is asked for a code`, async ({ page }) => {
+      await page.goto('/login')
+      await page.getByLabel('Email').fill(account.email)
+      await page.getByLabel('Password').fill(PASSWORD)
+      await page.getByRole('button', { name: 'Sign in' }).click()
+      await expect(page.getByLabel('Authentication code')).toBeVisible()
+      await expect(page.getByRole('navigation', { name: 'Platform' })).toHaveCount(0)
+    })
+  }
 })
 
 test.describe('role menus and landing pages', () => {
@@ -167,6 +173,8 @@ test.describe('next redirect', () => {
     await page.getByLabel('Email').fill(accounts.auditor.email)
     await page.getByLabel('Password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
+    await page.getByLabel('Authentication code').fill(CODE)
+    await page.getByRole('button', { name: 'Verify' }).click()
     await expect(page).toHaveURL(/\/tenants\?status=trial$/)
   })
 })

@@ -42,8 +42,7 @@ export const handlers = [
     if (!user || user.status !== 'active' || password !== DEMO_PASSWORD) {
       return unauthorized('Incorrect email or password.')
     }
-    if (user.mfa) return HttpResponse.json({ mfaRequired: true, challengeId: CHALLENGE_PREFIX + user.id })
-    return sessionResponse(user)
+    return HttpResponse.json({ challengeId: CHALLENGE_PREFIX + user.id })
   }),
 
   http.post(`${API_BASE}/auth/mfa`, async ({ request }) => {
