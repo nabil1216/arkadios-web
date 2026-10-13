@@ -1,0 +1,160 @@
+import re, datetime
+from playwright.sync_api import sync_playwright
+B = 'http://127.0.0.1:8801/'
+results = []
+def ok(name, cond):
+    results.append((name, bool(cond))); print(('PASS ' if cond else 'FAIL ') + name)
+def login(pg, email, pw='demo-1234'):
+    pg.goto(B + 'login.html'); pg.wait_for_timeout(250)
+    pg.fill('#lg-email', email); pg.fill('#lg-pass', pw); pg.get_by_role('button', name='Sign in', exact=True).click(); pg.wait_for_load_state(); pg.wait_for_timeout(450)
+def signout(pg): pg.locator('#sign-out').click(); pg.wait_for_load_state(); pg.wait_for_timeout(250)
+def visit(pg, path): pg.goto(B + path); pg.wait_for_timeout(550)
+def rows(pg): return pg.locator('tbody tr:not(.grp)').count()
+def toast(pg): return pg.locator('#toast').inner_text()
+
+with sync_playwright() as p:
+    br = p.chromium.launch(); ctx = br.new_context(viewport={'width': 1440, 'height': 900}, accept_downloads=True)
+    pg = ctx.new_page(); errs = []
+    pg.on('pageerror', lambda e: errs.append('pageerror: ' + str(e)))
+    pg.on('console', lambda m: errs.append('console: ' + m.text) if m.type == 'error' else None)
+    login(pg, 'dana.reyes@arkadios-example'.replace('-example', '.example'))
+
+    # ---------- Dashboards ----------
+    visit(pg, 'index.html'); ok('Command Center links to Dashboards', pg.locator('nav[aria-label="Section"] a', has_text='Dashboards').count() == 1)
+    pg.locator('nav[aria-label="Section"] a', has_text='Dashboards').click(); pg.wait_for_load_state(); pg.wait_for_timeout(500)
+    ok('three dashboards, one is the default', pg.locator('[data-dash]').count() == 3 and 'default' in pg.locator('.tab.is-on').inner_text())
+    ok('default dashboard has 5 cards', pg.locator('.dcard').count() == 5)
+    ok('the nav keeps Command Center highlighted', 'Command Center' in pg.locator('.side__link.active').inner_text())
+    n_open = pg.locator('[data-card]').count()
+    pg.locator('#d-edit').click(); pg.wait_for_timeout(250); ok('edit mode shows card tools', pg.locator('[data-crm]').count() == 5)
+    first = pg.locator('.dcard').first.inner_text()
+    pg.locator('[data-cmv="1"]').first.click(); pg.wait_for_timeout(250); ok('a card moves later', pg.locator('.dcard').first.inner_text() != first)
+    pg.locator('[data-csz]').first.click(); pg.wait_for_timeout(250); ok('a card changes width', 'Width' in pg.locator('[data-csz]').first.inner_text())
+    pg.locator('[data-crm]').first.click(); pg.wait_for_timeout(250); ok('a card is removed', pg.locator('.dcard').count() == 4)
+    pg.locator('#d-add').click(); pg.wait_for_timeout(250); pg.locator('[data-add="tickets"]').click(); pg.wait_for_timeout(300)
+    ok('a card is added', pg.locator('.dcard').count() == 5 and pg.locator('.dcard h2', has_text='Open tickets').count() == 1)
+    pg.locator('#d-add').click(); pg.wait_for_timeout(250); pg.locator('[data-add="report"]').click(); pg.wait_for_timeout(250); pg.locator('#rc-form button[type=submit]').click(); pg.wait_for_timeout(300)
+    ok('a saved report becomes a card', pg.locator('.dcard h2', has_text='Female advisors').count() == 1 and '7 people' in pg.locator('.dcard', has_text='Female advisors').inner_text())
+    pg.locator('#d-new').click(); pg.wait_for_timeout(250); pg.locator('#nd-form button[type=submit]').click(); ok('new dashboard needs a name', pg.locator('#nd-name-err:not([hidden])').count() == 1)
+    pg.fill('#nd-name', 'Service health'); pg.locator('#nd-form button[type=submit]').click(); ok('duplicate dashboard name blocked', 'already have' in pg.locator('#nd-name-err').inner_text())
+    pg.fill('#nd-name', 'Compliance'); pg.locator('#nd-form button[type=submit]').click(); pg.wait_for_timeout(400)
+    ok('new dashboard is created and opened', pg.locator('.tab.is-on', has_text='Compliance').count() == 1 and pg.locator('.dcard').count() == 2)
+    pg.locator('#d-rename').click(); pg.wait_for_timeout(250); pg.fill('#rn-name', 'Compliance view'); pg.locator('#rn-form button[type=submit]').click(); pg.wait_for_timeout(300); ok('dashboard renamed', pg.locator('.tab', has_text='Compliance view').count() == 1)
+    pg.locator('#d-default').click(); pg.wait_for_timeout(300); ok('set as my default', 'default' in pg.locator('.tab.is-on').inner_text())
+    pg.reload(); pg.wait_for_timeout(500); ok('the default dashboard opens first after a reload', 'Compliance view' in pg.locator('.tab.is-on').inner_text())
+    pg.locator('#d-edit').click(); pg.locator('#d-del').click(); pg.wait_for_timeout(250); pg.locator('dialog[open] [data-ok]').click(); pg.wait_for_timeout(300); ok('dashboard deleted, the default moves', pg.locator('[data-dash]').count() == 3 and 'default' in pg.locator('.tab.is-on').inner_text())
+    pg.locator('[data-done]').first.click() if pg.locator('[data-done]').count() else None
+
+    # ---------- Map ----------
+    visit(pg, 'firms.html'); pg.locator('nav[aria-label="Section"] a', has_text='Map').click(); pg.wait_for_load_state(); pg.wait_for_timeout(500)
+    ok('map has a tile for every state', pg.locator('.tile').count() == 51)
+    pg.locator('[data-state="AL"]').click(); pg.wait_for_timeout(300)
+    t = pg.locator('.panel', has_text='Alabama').inner_text(); ok('Alabama panel: 3 firms, 34 people, women over 60 counted', re.search(r'Firms\s*3', t) and re.search(r'Advisors and staff\s*34', t) and int(re.search(r'Female, over 60\s*(\d+)', t).group(1)) >= 7)
+    pg.locator('[data-layer="firms"]').click(); pg.wait_for_timeout(250); ok('firms layer counts firms', pg.locator('[data-state="AL"]').inner_text().strip().endswith('3'))
+    pg.locator('[data-layer="staff"]').click(); pg.wait_for_timeout(250); ok('office staff layer', int(pg.locator('[data-state="GA"]').inner_text().split()[-1]) > 49)
+    pg.locator('[data-layer="adv"]').click(); pg.select_option('#mp-stage', '3'); pg.wait_for_timeout(250); ok('stage filter changes the map', pg.locator('.filters__r').inner_text() != '' and pg.locator('[data-state="CT"]').inner_text().strip().endswith('14'))
+    pg.select_option('#mp-stage', 'all'); pg.fill('#mp-q', 'Mobile'); pg.wait_for_timeout(300); ok('address search highlights the state', pg.locator('.tile.is-hit').count() >= 1 and pg.locator('[data-pick]').count() >= 1)
+    pg.locator('[data-pick]').first.click(); pg.wait_for_timeout(300); ok('picking a result selects the state', 'Alabama' in pg.locator('.panel__head h2').last.inner_text())
+    pg.fill('#mp-q', 'zzzz'); pg.wait_for_timeout(250); ok('search with no match says so', 'Nothing matches' in pg.locator('#main').inner_text()); pg.fill('#mp-q', '')
+    with pg.expect_download() as d:
+        pg.locator('#mp-export').click()
+    ok('map export', d.value.suggested_filename == 'firms-by-state.csv')
+    pg.locator('[data-state="AL"]').click(); pg.get_by_role('link', name='Run as a report').click(); pg.wait_for_load_state(); pg.wait_for_timeout(600)
+    ok('Run as a report opens it for that state', '34 people match' in pg.locator('#rp-results').inner_text())
+    visit(pg, 'map.html'); pg.locator('[data-state="AL"]').click(); pg.get_by_role('link', name='See the people').click(); pg.wait_for_load_state(); pg.wait_for_timeout(600)
+    ok('See the people opens that state', 'people.html?state=AL' in pg.url and 'of 34 people' in pg.locator('.pager').inner_text())
+
+    # ---------- People ----------
+    visit(pg, 'people.html'); ok('203 people, 10 per page', '203 advisors and staff' in pg.locator('.page__head').inner_text() and pg.locator('[data-prow]').count() == 10)
+    pg.locator('#pp-next').click(); pg.wait_for_timeout(250); ok('next page', 'Showing 11 to 20' in pg.locator('.pager').inner_text()); pg.locator('#pp-prev').click()
+    pg.fill('#pp-q', 'Hargrove'); pg.wait_for_timeout(300); ok('search a name', pg.locator('[data-prow]').count() == 1 and 'Cedarline' in pg.locator('.quick').inner_text())
+    pg.fill('#pp-q', 'LA-'); pg.wait_for_timeout(250); ok('search a rep code', 0 < pg.locator('[data-prow]').count() <= 10)
+    pg.locator('#pp-clear').click(); pg.wait_for_timeout(300); pg.select_option('#pp-state', 'AL'); pg.wait_for_timeout(250); ok('state filter', 'of 34 people' in pg.locator('.pager').inner_text())
+    pg.select_option('#pp-lic', 'Series 63'); pg.wait_for_timeout(250); ok('license filter narrows', int(re.search(r'of (\d+)', pg.locator('.pager').inner_text()).group(1)) < 34)
+    pg.locator('#pp-clear').click(); pg.wait_for_timeout(300); pg.locator('#pp-rep').check(); pg.wait_for_timeout(250); ok('has a rep code', int(re.search(r'of (\d+)', pg.locator('.pager').inner_text()).group(1)) < 203)
+    pg.locator('#pp-clear').click(); pg.wait_for_timeout(300); pg.select_option('#pp-role', 'Operations'); pg.wait_for_timeout(250); ok('role filter', 0 < int(re.search(r'of (\d+)', pg.locator('.pager').inner_text()).group(1)) < 203)
+    pg.locator('#pp-clear').click(); pg.wait_for_timeout(300); pg.locator('[data-sort="name"]').click(); pg.wait_for_timeout(250); ok('sort', 'aria-sort' in pg.locator('th').first.evaluate('e => e.outerHTML'))
+    pg.locator('[data-prow]').nth(2).click(); pg.wait_for_timeout(250); ok('row click updates quick view', pg.locator('tr.is-sel').count() == 1)
+    pg.locator('#pp-edit').click(); pg.wait_for_timeout(250); pg.fill('#ad-staff', '5'); pg.locator('#ad-form button[type=submit]').click(); pg.wait_for_timeout(300); ok('edit a person', 'Changes saved' in toast(pg))
+    pg.locator('#pp-add').click(); pg.wait_for_timeout(250); pg.locator('#pf-form button[type=submit]').click(); pg.wait_for_timeout(250); pg.fill('#ad-name', 'Zed Newperson'); pg.locator('#ad-form button[type=submit]').click(); pg.wait_for_timeout(350)
+    pg.fill('#pp-q', 'Zed Newperson'); pg.wait_for_timeout(300); ok('add a person from the directory', pg.locator('[data-prow]').count() == 1)
+    with pg.expect_download() as d2:
+        pg.locator('#pp-export').click()
+    ok('people export', d2.value.suggested_filename == 'people.csv')
+
+    # ---------- Tasks calendar ----------
+    visit(pg, 'tasks.html'); pg.locator('[data-tview="calendar"]').click(); pg.wait_for_timeout(350)
+    ok('calendar shows the month', pg.locator('.cal__cell').count() >= 28 and pg.locator('.cal__chip').count() >= 1)
+    title = pg.locator('.cal__title').inner_text(); pg.locator('[data-cal="1"]').click(); pg.wait_for_timeout(250); ok('next month', pg.locator('.cal__title').inner_text() != title)
+    pg.locator('[data-cal="0"]').click(); pg.wait_for_timeout(250); ok('Today returns', pg.locator('.cal__title').inner_text() == title)
+    pg.locator('.cal__chip').first.click(); pg.wait_for_timeout(300); ok('a chip opens the task panel', pg.locator('dialog[open]').count() == 1); pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    chip = pg.locator('.cal__chip[draggable="true"]').first; before = chip.get_attribute('data-ctask'); cell = pg.locator('.cal__cell.is-today').first
+    tgt = pg.locator('.cal__cell[data-day]').filter(has_not=pg.locator('.cal__chip[data-ctask="%s"]' % before)).nth(20)
+    chip.drag_to(tgt); pg.wait_for_timeout(350); ok('dragging a task changes its due date', 'Due date moved' in toast(pg))
+    pg.locator('[data-tview="list"]').click(); pg.wait_for_timeout(250); ok('back to the list', pg.locator('table.table--tasks').count() == 1)
+
+    # ---------- Approvals ----------
+    visit(pg, 'approvals.html'); ok('two items wait for the manager', 'Waiting for me 2' in pg.locator('.tabs').inner_text().replace('\n', ' '))
+    ok('tab shows the count on Tasks sub-nav', pg.locator('nav[aria-label="Section"] a', has_text='Approvals').inner_text().strip().endswith('2'))
+    pg.locator('tr[data-ap]', has_text='Approve go-live plan').click(); pg.wait_for_timeout(300); ok('detail shows the chain', 'Manager sign-off' in pg.locator('.chain').inner_text())
+    pg.locator('#ap-ret').click(); ok('returning needs a comment', pg.locator('#ap-c-err:not([hidden])').count() == 1)
+    pg.fill('#ap-c', 'Please add the data migration date.'); pg.locator('#ap-ret').click(); pg.wait_for_timeout(350); ok('returned with a comment', 'Returned' in toast(pg) and pg.locator('tr[data-ap]', has_text='Approve go-live plan').count() == 0)
+    pg.locator('tr[data-ap]', has_text='Collect signed agreement').click(); pg.wait_for_timeout(250); pg.locator('#ap-ok').click(); pg.wait_for_timeout(350)
+    ok('first layer approves and it moves on', 'next layer' in toast(pg) and pg.locator('tr[data-ap]').count() == 0)
+    pg.locator('[data-aptab="decided"]').click(); pg.wait_for_timeout(250); ok('decisions are listed', pg.locator('tr[data-ap]').count() >= 2)
+    signout(pg); login(pg, 'noor.haddad@arkadios.example'); visit(pg, 'approvals.html')
+    ok('the next layer (Compliance) now sees it', pg.locator('tr[data-ap]', has_text='Collect signed agreement').count() == 1)
+    pg.locator('[data-quick]').first.click(); pg.wait_for_timeout(350); ok('final approval finishes the task', 'Approved' in toast(pg))
+    signout(pg); login(pg, 'imani.brooks@arkadios.example'); visit(pg, 'firm.html?id=f15&tab=tasks')
+    pg.locator('.rows__item', has_text='Migrate data').locator('[data-tdone]').click(); pg.wait_for_timeout(350)
+    ok('completing a step with a rule submits it for approval', 'Submitted for approval' in toast(pg) and pg.locator('.rows__item', has_text='Migrate data').inner_text().find('Awaiting approval') >= 0)
+    signout(pg); login(pg, 'dana.reyes@arkadios.example'); visit(pg, 'approvals.html'); ok('the manager sees the new request', pg.locator('tr[data-ap]', has_text='Migrate data').count() == 1)
+    pg.locator('[data-quick]').first.click(); pg.wait_for_timeout(300)
+    visit(pg, 'firm.html?id=f15&tab=tasks'); ok('after approval the task is done', pg.locator('.rows__item', has_text='Migrate data').locator('.box--on').count() == 1)
+
+    # ---------- Tickets ----------
+    visit(pg, 'tickets.html'); ok('five tickets, four open', 'Open 4' in pg.locator('.tabs').inner_text().replace('\n', ' ') and pg.locator('tr[data-tk]').count() == 4)
+    ok('a past-due ticket shows as breached', 'Breached' in pg.locator('tbody').inner_text())
+    pg.locator('#tk-new').click(); pg.wait_for_timeout(250); pg.locator('#tn-form button[type=submit]').click(); ok('new ticket validates', pg.locator('#tn-title-err:not([hidden])').count() == 1)
+    pg.fill('#tn-title', 'Cannot see the Documents tab'); pg.fill('#tn-contact', 'Eleanor Whitcombe'); pg.select_option('#tn-prio', 'High'); pg.fill('#tn-desc', 'The tab is missing for two people.'); pg.locator('#tn-form button[type=submit]').click(); pg.wait_for_timeout(400)
+    ok('ticket created with the next number', 'T-1043' in pg.locator('.panel__head h2').last.inner_text() and 'left' in pg.locator('.panel__head').last.inner_text())
+    pg.fill('#tk-text', 'Looking into it now.'); pg.locator('#tk-reply button[type=submit]').click(); pg.wait_for_timeout(300); ok('reply is added and the response time is met', 'Looking into it now.' in pg.locator('.convo').inner_text() and 'Met' in pg.locator('.panel__head').last.inner_text())
+    pg.fill('#tk-text', 'Check with Technology first.'); pg.locator('#tk-int').check(); pg.locator('#tk-reply button[type=submit]').click(); pg.wait_for_timeout(300); ok('internal note is marked', 'Internal note' in pg.locator('.convo').inner_text())
+    pg.select_option('#tk-prio', 'Low'); pg.wait_for_timeout(300); ok('priority change recalculates', 'recalculated' in toast(pg))
+    pg.select_option('#tk-who', 'u-luca'); pg.wait_for_timeout(300); ok('assign', 'Assigned to Luca' in toast(pg))
+    pg.select_option('#tk-status', 'Waiting on firm'); pg.wait_for_timeout(300); pg.locator('[data-tktab="waiting"]').click(); pg.wait_for_timeout(250); ok('status change moves it to Waiting on firm', pg.locator('tr[data-tk]', has_text='Documents tab').count() == 1)
+    pg.locator('tr[data-tk]', has_text='Documents tab').click(); pg.wait_for_timeout(250); pg.locator('#tk-resolve').click(); pg.wait_for_timeout(300); ok('resolve moves it to Resolved', pg.locator('[data-tktab="resolved"]').inner_text().find('3') >= 0 or pg.locator('tr[data-tk]', has_text='Documents tab').count() == 1)
+    pg.locator('#tk-reopen').click(); pg.wait_for_timeout(300); ok('reopen', pg.locator('tr[data-tk]', has_text='Documents tab').count() == 1)
+    pg.locator('#tk-task').click(); pg.wait_for_timeout(250); ok('Create a task is prefilled', 'T-1043' in pg.input_value('#nt-title')); pg.keyboard.press('Escape')
+    pg.locator('[data-tktab="mine"]').click(); pg.wait_for_timeout(250); ok('Mine tab', pg.locator('tr[data-tk]').count() >= 1)
+
+    # ---------- Communications ----------
+    visit(pg, 'documents.html'); pg.locator('nav[aria-label="Section"] a', has_text='Communications').click(); pg.wait_for_load_state(); pg.wait_for_timeout(500)
+    pg.select_option('#cm-firm', 'f3'); pg.wait_for_timeout(300); pg.select_option('#cm-tpl', 'tp2'); pg.wait_for_timeout(300)
+    ok('template fills subject and body from the firm', 'Cedarline' in pg.input_value('#cm-sub') and 'Cedarline' in pg.input_value('#cm-body') and '{' not in pg.input_value('#cm-body'))
+    pg.locator('#cm-prev').click(); pg.wait_for_timeout(250); ok('preview shows the filled message', 'Cedarline' in pg.locator('dialog[open]').inner_text()); pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    pg.fill('#cm-body', ''); pg.locator('#cm-form button[type=submit]').click(); ok('empty message is refused', pg.locator('#cm-body-err:not([hidden])').count() == 1)
+    pg.select_option('#cm-tpl', 'tp2'); pg.wait_for_timeout(250); pg.locator('#cm-form button[type=submit]').click(); pg.wait_for_timeout(400)
+    ok('sent message is logged and says nothing is really sent', 'nothing is actually sent' in toast(pg) and pg.locator('.rows__item', has_text='Your training session for Cedarline').count() >= 1)
+    visit(pg, 'firm.html?id=f3&tab=service'); pg.locator('[data-flt="message"]').click(); pg.wait_for_timeout(250); ok('saved to the firm history', pg.locator('.tl', has_text='Emailed').count() >= 1)
+    visit(pg, 'communications.html'); pg.locator('[data-ch="text"]').click(); pg.wait_for_timeout(250); ok('text has no subject', pg.locator('#cm-sub').count() == 0)
+    pg.locator('#cm-manage').click(); pg.wait_for_timeout(250); pg.locator('#tp-new').click(); pg.wait_for_timeout(250); pg.locator('#tf-form button[type=submit]').click(); ok('template form validates', pg.locator('#tf-name-err:not([hidden])').count() == 1)
+    pg.fill('#tf-name', 'Thank you'); pg.select_option('#tf-ch', 'text'); pg.fill('#tf-body', 'Thanks {contact first name}, from {owner}.'); pg.locator('#tf-form button[type=submit]').click(); pg.wait_for_timeout(300)
+    ok('template added', pg.locator('dialog[open] .rows__item', has_text='Thank you').count() == 1)
+    pg.locator('dialog[open] [data-tdel]').last.click(); pg.wait_for_timeout(300); ok('template deleted', pg.locator('dialog[open] .rows__item', has_text='Thank you').count() == 0); pg.keyboard.press('Escape')
+
+    # ---------- E-signature ----------
+    visit(pg, 'documents.html'); ok('signature column', 'Out for signature' in pg.locator('tbody').inner_text() and 'Signed' in pg.locator('tbody').inner_text())
+    pg.locator('tr', has_text='Renewal terms').locator('[data-sig]').click(); pg.wait_for_timeout(300); ok('signature drawer lists signers in order', '1.' in pg.locator('dialog[open]').inner_text() and 'Waiting' in pg.locator('dialog[open]').inner_text())
+    pg.locator('#sg-rem').click(); pg.wait_for_timeout(300); ok('send a reminder', 'Reminder sent' in pg.locator('dialog[open]').inner_text())
+    pg.locator('#sg-sign').click(); pg.wait_for_timeout(300); pg.locator('#sg-sign').click(); pg.wait_for_timeout(350)
+    ok('when everyone signs the request is complete', 'All signatures collected' in pg.locator('dialog[open]').inner_text()); pg.keyboard.press('Escape'); pg.wait_for_timeout(250)
+    ok('the list shows Signed', pg.locator('tr', has_text='Renewal terms').inner_text().count('Signed') >= 1)
+    pg.locator('tr', has_text='Core platform training slides').locator('[data-sig]').click(); pg.wait_for_timeout(300); pg.locator('#sr-form button[type=submit]').click(); ok('request needs a signer when no firm is linked', pg.locator('#sr-name-err:not([hidden])').count() == 1)
+    pg.fill('#sr-name', 'Pat Lee'); pg.locator('#sr-form button[type=submit]').click(); pg.wait_for_timeout(400); ok('request sent', pg.locator('tr', has_text='Core platform training slides').inner_text().find('Out for signature') >= 0)
+    pg.locator('tr', has_text='Core platform training slides').locator('[data-sig]').click(); pg.wait_for_timeout(300); pg.locator('#sg-cancel').click(); pg.wait_for_timeout(400); ok('cancel the request', 'Cancelled' in pg.locator('tr', has_text='Core platform training slides').inner_text())
+
+    print('ERRORS:', errs)
+    failed = [n for n, c in results if not c]
+    print('TOTAL', len(results), 'FAILED', len(failed), failed)
+    br.close()
