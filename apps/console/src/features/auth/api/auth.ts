@@ -16,6 +16,14 @@ export function verifyMfa(challengeId: string, code: string) {
   return api<SessionResponse>('/auth/mfa', { body: { challengeId, code }, anonymous: true })
 }
 
+/**
+ * Always resolves the same way for any well-formed email, so the response never
+ * reveals whether an account exists (docs/ARCHITECTURE.md, section 5).
+ */
+export function requestPasswordReset(email: string) {
+  return api<void>('/auth/forgot-password', { body: { email }, anonymous: true })
+}
+
 export function startSession(session: SessionResponse) {
   sessionStore.setSession(session)
 }

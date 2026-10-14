@@ -75,6 +75,52 @@ test.describe('guard and sign-in', () => {
   })
 })
 
+test.describe('forgot password', () => {
+  test('opens from the sign-in page, validates, and confirms without naming the account', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Reset your password' })
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByLabel('Work email').fill('nope')
+    await dialog.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Enter a valid email address.')
+
+    await dialog.getByLabel('Work email').fill(accounts.billing.email)
+    await dialog.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText('If that email has an account, a reset link is on its way')).toBeVisible()
+    // the sign-in form is untouched: still on step one, not asking for a code
+    await expect(page.getByLabel('Password')).toBeVisible()
+  })
+
+  test('shows the same message for an email with no account', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await page.getByLabel('Work email').fill('nobody@platform.example')
+    await page.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(page.getByText('If that email has an account, a reset link is on its way')).toBeVisible()
+  })
+
+  test('carries over the email typed on the sign-in form, and Escape closes it', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByLabel('Email').fill(accounts.auditor.email)
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await expect(page.getByLabel('Work email')).toHaveValue(accounts.auditor.email)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toBeHidden()
+  })
+
+  test('does not submit the sign-in form', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await page.getByLabel('Work email').fill(accounts.admin.email)
+    await page.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(page.getByText('Enter your password')).toHaveCount(0)
+    await expect(page.getByText('Enter a valid email address')).toHaveCount(0)
+  })
+})
+
 test.describe('MFA', () => {
   test('asks for a code, rejects a wrong one, and lands on the requested page', async ({ page }) => {
     const errors = pageErrors(page)

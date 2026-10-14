@@ -157,3 +157,20 @@ describe('POST /auth/refresh rotation', () => {
     await expectProblem(await refresh('mock-refresh.u5.1'), 401)
   })
 })
+
+describe('POST /auth/forgot-password', () => {
+  it('answers the same for an existing, unknown and invited account', async () => {
+    const invited = staff.find((u) => u.status === 'invited')!
+    for (const email of [staff[0].email, 'nobody@platform.example', invited.email]) {
+      const res = await post('/auth/forgot-password', { email })
+      expect(res.status, email).toBe(204)
+      expect(await res.text()).toBe('')
+    }
+  })
+
+  it('needs a well-formed email', async () => {
+    const body = await expectProblem(await post('/auth/forgot-password', { email: 'nope' }), 400)
+    expect(body.errors).toEqual({ email: ['Enter a valid email address.'] })
+    await expectProblem(await post('/auth/forgot-password', {}), 400)
+  })
+})

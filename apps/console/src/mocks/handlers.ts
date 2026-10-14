@@ -68,6 +68,18 @@ export const handlers = [
     return HttpResponse.json({ challengeId: CHALLENGE_PREFIX + user.id })
   }),
 
+  // Same answer for known, unknown and disabled accounts: the response never says which.
+  http.post(`${API_BASE}/auth/forgot-password`, async ({ request }) => {
+    await delay(150)
+    const { email } = (await request.json()) as { email?: unknown }
+    if (typeof email !== 'string' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+      return problem(400, 'validation', 'One or more validation errors occurred.', {
+        errors: { email: ['Enter a valid email address.'] },
+      })
+    }
+    return new HttpResponse(null, { status: 204 })
+  }),
+
   http.post(`${API_BASE}/auth/mfa`, async ({ request }) => {
     await delay(150)
     const { challengeId, code } = (await request.json()) as { challengeId?: string; code?: string }
