@@ -214,6 +214,54 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   The backend may upgrade this to a double-submit token later; the UI change would be one header.
 - A reused or invalid refresh token ends the session and the client returns to login.
 
+**Tenants list (platform API; other lists follow the same shape)**
+- `GET /tenants?q=&status=&sort=&page=&pageSize=`. Needs `tenants.view`: `401` without a valid token, `403` without the key.
+  Responses carry `Cache-Control: no-store`.
+- Response: `{ items, total, page, pageSize }`. `total` is the count after filtering, before paging.
+- Item: `{ id, name, domain, database, planId, planName, usersUsed, userLimit, status, createdAt }`.
+  `id` is an opaque GUID, never a sequence number. `status` is `active`, `trial`, `suspended` or `offboarding`.
+  `createdAt` is ISO 8601 UTC. `database` is the database name only.
+- `q`: optional text, trimmed, at most 100 characters, matched case-insensitively as "contains" against name, domain and database.
+  `%` and `_` in `q` are plain characters, not wildcards.
+- `status`: optional, one of the four values above. Omit it for all statuses; `all` is not a value.
+- `sort`: one key from the whitelist `name`, `plan`, `usersUsed`, `status`, `createdAt`; a leading `-` means descending. Default `name`.
+  `plan` sorts by `planName`. Ties always fall back to `name` ascending, then `id` ascending, whatever the direction, so pages never repeat or skip rows.
+- Paging: `page` is a whole number from 1 (default 1); `pageSize` is a whole number from 1 to 100 (default 25).
+  A page past the end returns `200` with empty `items` and the real `total`.
+- Invalid parameters return `400` `application/problem+json` with `errors` keyed by parameter:
+  `q`, `status`, `sort`, `page`, `pageSize`. Every bad parameter is reported in one response. Unknown parameters are ignored.
+- Backend notes:
+  - `sort` accepts only whitelisted keys, each mapped to a column in code. A request value is never placed in an `ORDER BY` string.
+  - `q` always goes in as a query parameter, never concatenated into SQL, and `%`, `_` and the escape character are escaped before the `LIKE`.
+  - Responses are DTOs. They never include connection strings or any secret, only the database name.
+
+**Create tenant (platform API)**
+- `GET /tenants/options` returns `{ plans, regions, baseDomain }` for the create form, in one request.
+  `plans` is `[{ id, name, blurb, trialDays }]`, `regions` is `[{ id, name }]`, and a tenant lives at `<domain>.<baseDomain>`.
+  Needs `tenants.manage`. The UI hard-codes none of these values.
+- `POST /tenants` with `{ name, domain, planId, userLimit, region, adminEmail }`. Needs `tenants.manage` (`403` without it).
+  - `name`: required, trimmed, at most 100 characters.
+  - `domain`: 3 to 30 characters, lowercase letters, numbers and hyphens, starting with a letter or number. It also names the database
+    (`tenant_<domain with - as _>`).
+  - `planId` and `region` must be ids from `/tenants/options`. `userLimit` is a whole number from 1 to 1000.
+  - `adminEmail` is a valid email address, trimmed.
+  - Unknown fields are refused. Invalid input returns `400` with `errors` keyed by field name, every bad field in one response.
+  - A domain that is already in use, or reserved by a tenant still being provisioned, returns `409` with `errors.domain`.
+    The `400` checks run before the `409` check.
+  - Success is `202 Accepted` with `{ id }` and a `Location` header pointing at the provisioning resource. `id` is the new tenant's
+    opaque GUID. The tenant is not in the tenants list yet.
+- `GET /tenants/{id}/provisioning` returns `{ id, status, steps, result? }`. Needs `tenants.manage`; `404` for an unknown id;
+  `Cache-Control: no-store`. The client polls it while `status` is `running`.
+  - `status` is `running`, `succeeded` or `failed`. `steps` is an ordered list of `{ key, label, state }`, with `state` one of
+    `waiting`, `running`, `done` or `failed`.
+  - The steps, in order: `database`, `migrations`, `seed`, `domain`, `invite`. `label` is display text from the server, for example
+    "Creating the database tenant_acme".
+  - `result` is only present when `status` is `succeeded`: `{ name, domain, adminEmail, trialDays }`, where `domain` is the full host.
+- When provisioning succeeds the tenant appears in `GET /tenants` with status `trial` and one user. The first admin gets the
+  "set your password" invitation described under Password reset.
+- Backend notes: provisioning runs as a background job (see section 3, Provisioning); the first `POST` reserves the domain; connection
+  strings never appear in any of these responses.
+
 **Password reset (platform API; the tenant API follows the same shape)**
 - `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists
   (no account enumeration). Strict rate limit per IP and per email; `429` with `Retry-After`. The email is sent by a job (outbox), not inline.

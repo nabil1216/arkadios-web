@@ -1,8 +1,9 @@
 import { setupServer } from 'msw/node'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { API_BASE } from '@/lib/api'
-import { DEMO_CODE, DEMO_PASSWORD, staff } from './db'
+import { DEMO_CODE, DEMO_PASSWORD, permissions, staff } from './db'
 import { handlers } from './handlers'
+import { resetMockTenants, setProvisionStepMs } from './tenantCreate'
 
 const server = setupServer(...handlers)
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
@@ -304,5 +305,167 @@ describe('password reset', () => {
     const token = await requestToken()
     expect((await reset(token)).status).toBe(204)
     await expectProblem(await refresh(cookie), 401)
+  })
+})
+
+describe('GET /tenants', () => {
+  const as = (userId: string) => ({ Authorization: `Bearer mock-access.${userId}` })
+  const get = (query = '', headers: Record<string, string> = as('u1')) => fetch(url('/tenants' + query), { headers })
+
+  it('needs a bearer token', async () => {
+    await expectProblem(await get('', {}), 401)
+  })
+
+  it('returns the list envelope with no-store caching', async () => {
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const body = await res.json()
+    expect(body).toEqual({ items: expect.any(Array), total: 6, page: 1, pageSize: 25 })
+    expect(body.items[0]).toMatchObject({ name: 'Arkadios Home Office', database: 'tenant_arkadios' })
+  })
+
+  it('is open to every role that holds tenants.view', async () => {
+    for (const id of ['u1', 'u2', 'u3', 'u4']) expect((await get('', as(id))).status, id).toBe(200)
+  })
+
+  it('refuses a caller without tenants.view, as a problem', async () => {
+    const original = permissions.support
+    permissions.support = original.filter((k) => !k.startsWith('tenants.'))
+    try {
+      const body = await expectProblem(await get('', as('u2')), 403)
+      expect(body.detail).toBe('Your role does not include Tenants.')
+    } finally {
+      permissions.support = original
+    }
+  })
+
+  it('filters, sorts and pages from the query string', async () => {
+    const body = await (await get('?status=active&sort=-usersUsed&page=2&pageSize=2')).json()
+    expect(body).toMatchObject({ total: 4, page: 2, pageSize: 2 })
+    expect(body.items.map((t: { usersUsed: number }) => t.usersUsed)).toEqual([64, 47])
+  })
+
+  it('url-decodes q', async () => {
+    const body = await (await get('?q=' + encodeURIComponent('marlow & finch'))).json()
+    expect(body.items.map((t: { name: string }) => t.name)).toEqual(['Marlow & Finch Partners'])
+  })
+
+  it('returns a validation problem with the error key per bad parameter', async () => {
+    const body = await expectProblem(await get('?status=nope&sort=id&page=0&pageSize=500'), 400)
+    expect(Object.keys(body.errors!).sort()).toEqual(['page', 'pageSize', 'sort', 'status'])
+  })
+
+  it('never exposes a connection string, only the database name', async () => {
+    const text = await (await get()).text()
+    expect(text).not.toMatch(/Server=|Password|connectionString/i)
+    expect(text).toContain('tenant_northwind')
+  })
+})
+
+describe('creating a tenant', () => {
+  const as = (userId: string) => ({ Authorization: `Bearer mock-access.${userId}` })
+  const GOOD = {
+    name: 'Harbor Lane Advisors',
+    domain: 'harbor-lane-advisors',
+    planId: 'enterprise',
+    userLimit: 80,
+    region: 'us-west',
+    adminEmail: 'it@harborlane.example',
+  }
+  const create = (body: unknown = GOOD, headers: Record<string, string> = as('u1')) => post('/tenants', body, headers)
+  const getJson = (path: string, headers: Record<string, string> = as('u1')) => fetch(url(path), { headers })
+
+  beforeEach(() => {
+    resetMockTenants()
+    setProvisionStepMs(850)
+  })
+  afterEach(() => {
+    resetMockTenants()
+    setProvisionStepMs(850)
+  })
+
+  it('needs a token, and tenants.manage (view is not enough)', async () => {
+    await expectProblem(await create(GOOD, {}), 401)
+    for (const id of ['u2', 'u3', 'u4']) {
+      const body = await expectProblem(await create(GOOD, as(id)), 403)
+      expect(body.detail, id).toBe('Your role cannot change Tenants.')
+    }
+  })
+
+  it('answers 202 with the new id and a Location for the provisioning', async () => {
+    const res = await create()
+    expect(res.status).toBe(202)
+    const { id } = await res.json()
+    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(res.headers.get('Location')).toBe(`/api/platform/v1/tenants/${id}/provisioning`)
+  })
+
+  it('answers 400 with errors per field, and 409 with errors.domain', async () => {
+    const bad = await expectProblem(await create({ ...GOOD, domain: 'No', userLimit: 0 }), 400)
+    expect(Object.keys(bad.errors!).sort()).toEqual(['domain', 'userLimit'])
+    const taken = await expectProblem(await create({ ...GOOD, domain: 'quillon' }), 409)
+    expect(taken.errors).toEqual({ domain: ['This domain is already taken.'] })
+  })
+
+  it('answers 400 for a body that is not JSON', async () => {
+    const res = await fetch(url('/tenants'), { method: 'POST', headers: { ...as('u1'), 'Content-Type': 'application/json' }, body: 'not json' })
+    await expectProblem(res, 400)
+  })
+
+  it('serves the options the form needs to a role that can create', async () => {
+    const res = await getJson('/tenants/options')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      plans: [
+        { id: 'essentials', name: 'Essentials', blurb: 'Directory and service history', trialDays: 14 },
+        { id: 'professional', name: 'Professional', blurb: 'Adds workflows, reports, AI', trialDays: 30 },
+        { id: 'enterprise', name: 'Enterprise', blurb: 'Adds integrations and audit', trialDays: 30 },
+      ],
+      regions: [
+        { id: 'us-east', name: 'US East' },
+        { id: 'us-west', name: 'US West' },
+        { id: 'eu-frankfurt', name: 'EU Frankfurt' },
+      ],
+      baseDomain: 'platform.example',
+    })
+    await expectProblem(await getJson('/tenants/options', {}), 401)
+    await expectProblem(await getJson('/tenants/options', as('u2')), 403)
+  })
+
+  it('reports provisioning progress, then the result, and then lists the tenant', async () => {
+    setProvisionStepMs(40)
+    const { id } = await (await create()).json()
+
+    const first = await getJson(`/tenants/${id}/provisioning`)
+    expect(first.headers.get('Cache-Control')).toBe('no-store')
+    const running = await first.json()
+    expect(running.status).toBe('running')
+    expect(running.steps).toHaveLength(5)
+    expect(running.result).toBeUndefined()
+
+    await new Promise((r) => setTimeout(r, 260))
+    const done = await (await getJson(`/tenants/${id}/provisioning`)).json()
+    expect(done).toMatchObject({
+      status: 'succeeded',
+      result: { name: 'Harbor Lane Advisors', domain: 'harbor-lane-advisors.platform.example', adminEmail: 'it@harborlane.example', trialDays: 30 },
+    })
+
+    const list = await (await getJson('/tenants?q=harbor')).json()
+    expect(list.items).toHaveLength(1)
+    expect(list.items[0]).toMatchObject({ id, status: 'trial', usersUsed: 1, userLimit: 80, planName: 'Enterprise' })
+    expect(list.total).toBe(1)
+  })
+
+  it('does not list the tenant while it is still provisioning', async () => {
+    await create()
+    expect((await (await getJson('/tenants')).json()).total).toBe(6)
+  })
+
+  it('protects and 404s the provisioning endpoint', async () => {
+    const { id } = await (await create()).json()
+    await expectProblem(await getJson(`/tenants/${id}/provisioning`, {}), 401)
+    await expectProblem(await getJson(`/tenants/${id}/provisioning`, as('u2')), 403)
+    await expectProblem(await getJson('/tenants/00000000-0000-4000-8000-000000000000/provisioning'), 404)
   })
 })

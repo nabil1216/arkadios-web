@@ -1,13 +1,21 @@
 import { delay, http, HttpResponse } from 'msw'
 import type { SessionResponse } from '@/features/auth/api/types'
 import { API_BASE, CSRF_HEADER } from '@/lib/api'
+import { hasPermission } from '@/features/auth/hooks/permissions'
 import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
+import { createTenant, provisioningOf, settleProvisioning, tenantOptions } from './tenantCreate'
+import { queryTenants } from './tenants'
 import { ACCESS_TOKEN_SECONDS, DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
 
 const ACCESS_PREFIX = 'mock-access.'
 const REFRESH_COOKIE = 'refresh_token'
 const REFRESH_PREFIX = 'mock-refresh.' // cookie value: mock-refresh.<userId>.<version>
 const CHALLENGE_PREFIX = 'mock-challenge.'
+
+const tenantsForbidden = (change = false) =>
+  problem(403, 'auth/forbidden', 'Forbidden', {
+    detail: change ? 'Your role cannot change Tenants.' : 'Your role does not include Tenants.',
+  })
 
 function findActive(id: string): SeedStaff | undefined {
   return staff.find((u) => u.id === id && u.status === 'active')
@@ -177,6 +185,53 @@ export const handlers = [
     const token = parseRefreshCookie(cookies[REFRESH_COOKIE])
     if (token) families.delete(token.userId)
     return new HttpResponse(null, { status: 204, headers: { 'Set-Cookie': clearedRefreshCookie } })
+  }),
+
+  http.get(`${API_BASE}/tenants`, async ({ request }) => {
+    await delay(150)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    // The server is the authority: the UI hiding the menu is only cosmetic.
+    if (!hasPermission(permissions, user.role, 'tenants.view')) return tenantsForbidden()
+    settleProvisioning()
+    const result = queryTenants(new URL(request.url).searchParams)
+    if (!result.ok) {
+      return problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+    }
+    return HttpResponse.json(result.body, { headers: { 'Cache-Control': 'no-store' } })
+  }),
+
+  // Options for the create form: plans, regions and the base domain, in one request.
+  http.get(`${API_BASE}/tenants/options`, async ({ request }) => {
+    await delay(100)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'tenants.manage')) return tenantsForbidden(true)
+    return HttpResponse.json(tenantOptions())
+  }),
+
+  http.post(`${API_BASE}/tenants`, async ({ request }) => {
+    await delay(200)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'tenants.manage')) return tenantsForbidden(true)
+    const result = createTenant(await request.json().catch(() => null))
+    if (!result.ok) {
+      return result.status === 409
+        ? problem(409, 'conflict', 'Conflict', { detail: 'A tenant already uses this domain.', errors: result.errors })
+        : problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+    }
+    return HttpResponse.json({ id: result.id }, { status: 202, headers: { Location: `${API_BASE}/tenants/${result.id}/provisioning` } })
+  }),
+
+  // The create drawer polls this until the five steps are done.
+  http.get(`${API_BASE}/tenants/:id/provisioning`, async ({ request, params }) => {
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'tenants.manage')) return tenantsForbidden(true)
+    settleProvisioning()
+    const job = provisioningOf(String(params.id))
+    return job ? HttpResponse.json(job, { headers: { 'Cache-Control': 'no-store' } }) : problem(404, 'not-found', 'Not found', { detail: 'No such tenant.' })
   }),
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {

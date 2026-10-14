@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const dist = fileURLToPath(new URL('../dist', import.meta.url))
-const markers = ['mock-access.', 'mock-refresh.', 'mock-reset.', '[mock email]', '__msw-cookie-store__', 'demo-1234', 'mockServiceWorker', 'msw/browser']
+const markers = ['mock-access.', 'mock-refresh.', 'mock-reset.', 'tenant_northwind', '[mock email]', '__msw-cookie-store__', 'demo-1234', 'mockServiceWorker', 'msw/browser']
 
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
