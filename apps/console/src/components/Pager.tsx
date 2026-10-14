@@ -1,14 +1,14 @@
 import { Button } from '@/components/ui/button'
 
-interface TenantsPagerProps {
+interface PagerProps {
   page: number
   pageSize: number
   total: number
   onPage: (page: number) => void
 }
 
-/** Shown only when the list does not fit on one page. */
-export function TenantsPager({ page, pageSize, total, onPage }: TenantsPagerProps) {
+/** Previous and Next for any paged list. Shown only when the list does not fit on one page. */
+export function Pager({ page, pageSize, total, onPage }: PagerProps) {
   if (total <= pageSize) return null
   const pages = Math.ceil(total / pageSize)
   const from = (page - 1) * pageSize + 1

@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { afterEach, describe, expect, it } from 'vitest'
-import { formatDate, formatDay, formatMonth } from './format'
+import { formatDate, formatDay, formatMonth, formatMonthLong } from './format'
 
 const ORIGINAL_TZ = process.env.TZ
 afterEach(() => {
@@ -44,5 +44,15 @@ describe('formatMonth', () => {
     expect(formatMonth('2026-10')).toBe('Oct 2026')
     process.env.TZ = 'Pacific/Pago_Pago' // UTC-11
     expect(formatMonth('2026-10')).toBe('Oct 2026')
+  })
+})
+
+describe('formatMonthLong', () => {
+  it.each([
+    ['2026-09', 'September 2026'],
+    ['2026-10', 'October 2026'],
+    ['2027-01', 'January 2027'],
+  ])('%s is %s', (month, text) => {
+    expect(formatMonthLong(month)).toBe(text)
   })
 })

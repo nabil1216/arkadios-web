@@ -1,10 +1,10 @@
 import { Plus } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { PageHeader } from '@/components/PageHeader'
+import { Pager } from '@/components/Pager'
 import { Button } from '@/components/ui/button'
 import { Can } from '@/features/auth/components/Can'
 import { ApiError } from '@/lib/api'
-import { TenantsPager } from '../components/TenantsPager'
 import { COMING_LATER, COMING_LATER_ID } from '../components/pendingAction'
 import { CreateTenantDrawer } from '../components/CreateTenantDrawer'
 import { TenantsTable } from '../components/TenantsTable'
@@ -77,7 +77,7 @@ export default function TenantsPage() {
             emptyMessage={filtered ? NO_MATCH : NONE_YET}
           />
           {data ? (
-            <TenantsPager
+            <Pager
               page={data.page}
               pageSize={data.pageSize}
               total={data.total}
