@@ -37,3 +37,69 @@ export interface TenantListParams {
   page?: number
   pageSize?: number
 }
+
+// ---- Create tenant (docs/ARCHITECTURE.md, "Create tenant")
+
+export interface PlanOption {
+  id: PlanId
+  name: string
+  blurb: string
+  trialDays: number
+}
+
+export interface RegionOption {
+  id: string
+  name: string
+}
+
+/** Everything the create form needs, in one request. */
+export interface TenantOptions {
+  plans: PlanOption[]
+  regions: RegionOption[]
+  /** Tenants live at <domain>.<baseDomain>. */
+  baseDomain: string
+}
+
+export interface CreateTenantInput {
+  name: string
+  /** The part before the base domain. Also names the database. */
+  domain: string
+  planId: PlanId
+  userLimit: number
+  region: string
+  adminEmail: string
+}
+
+/** 202 Accepted: the tenant now exists as a provisioning job under this id. */
+export interface CreateTenantAccepted {
+  id: string
+}
+
+export type ProvisioningStepState = 'waiting' | 'running' | 'done' | 'failed'
+
+export interface ProvisioningStep {
+  key: string
+  label: string
+  state: ProvisioningStepState
+}
+
+export interface ProvisioningResult {
+  name: string
+  /** Full workspace host, for example arkadios.platform.example. */
+  domain: string
+  adminEmail: string
+  trialDays: number
+}
+
+export interface Provisioning {
+  id: string
+  status: 'running' | 'succeeded' | 'failed'
+  steps: ProvisioningStep[]
+  /** Only when status is succeeded. */
+  result?: ProvisioningResult
+}
+
+/** Rules shared by the form and the mock server; the real server owns them. */
+export const DOMAIN_PATTERN = /^[a-z0-9][a-z0-9-]{2,29}$/
+export const USER_LIMIT_RANGE = { min: 1, max: 1000 } as const
+export const NAME_MAX_LENGTH = 100

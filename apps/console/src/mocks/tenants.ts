@@ -11,21 +11,21 @@ import {
   type TenantStatus,
 } from '@/features/tenants/api/types'
 
-const DOMAIN = 'platform.example'
-const PLAN_NAMES: Record<PlanId, string> = {
+export const BASE_DOMAIN = 'platform.example'
+export const PLAN_NAMES: Record<PlanId, string> = {
   essentials: 'Essentials',
   professional: 'Professional',
   enterprise: 'Enterprise',
 }
 
 /** What the server stores. The connection string is here to prove it never reaches a response. */
-interface TenantRecord extends Tenant {
+export interface TenantRecord extends Tenant {
   connectionString: string
 }
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 864e5).toISOString()
 
-function record(
+export function makeTenantRecord(
   id: string,
   name: string,
   subdomain: string,
@@ -39,7 +39,7 @@ function record(
   return {
     id,
     name,
-    domain: `${subdomain}.${DOMAIN}`,
+    domain: `${subdomain}.${BASE_DOMAIN}`,
     database,
     planId,
     planName: PLAN_NAMES[planId],
@@ -52,16 +52,16 @@ function record(
 }
 
 export const tenantRecords: TenantRecord[] = [
-  record('8f14e45f-ceea-467a-9575-7b1f2c1a0d33', 'Arkadios Home Office', 'arkadios', 'professional', 64, 100, 'active', 40),
-  record('c4a8d1b2-3e5f-4a60-9b7c-1d2e3f405162', 'Northwind Advisory Group', 'northwind', 'enterprise', 212, 250, 'active', 210),
-  record('1b9e7c3a-6d24-4f81-a05b-9c8d7e6f5a43', 'Cobalt Ridge Wealth', 'cobalt-ridge', 'professional', 47, 50, 'active', 120),
-  record('e2d94a07-b813-4c56-8f10-3a7b6c5d4e21', 'Marlow & Finch Partners', 'marlow-finch', 'essentials', 18, 25, 'trial', 6),
-  record('5a3f0c9e-7b12-4d8a-b6e4-2f1c0d9e8a77', 'Sterling Hollow Family Office', 'sterling-hollow', 'professional', 31, 40, 'suspended', 300),
-  record('a7c61d34-92e8-4b0f-8d53-6e4f3a2b1c09', 'Quillon Trust Company', 'quillon', 'enterprise', 140, 200, 'active', 75),
+  makeTenantRecord('8f14e45f-ceea-467a-9575-7b1f2c1a0d33', 'Arkadios Home Office', 'arkadios', 'professional', 64, 100, 'active', 40),
+  makeTenantRecord('c4a8d1b2-3e5f-4a60-9b7c-1d2e3f405162', 'Northwind Advisory Group', 'northwind', 'enterprise', 212, 250, 'active', 210),
+  makeTenantRecord('1b9e7c3a-6d24-4f81-a05b-9c8d7e6f5a43', 'Cobalt Ridge Wealth', 'cobalt-ridge', 'professional', 47, 50, 'active', 120),
+  makeTenantRecord('e2d94a07-b813-4c56-8f10-3a7b6c5d4e21', 'Marlow & Finch Partners', 'marlow-finch', 'essentials', 18, 25, 'trial', 6),
+  makeTenantRecord('5a3f0c9e-7b12-4d8a-b6e4-2f1c0d9e8a77', 'Sterling Hollow Family Office', 'sterling-hollow', 'professional', 31, 40, 'suspended', 300),
+  makeTenantRecord('a7c61d34-92e8-4b0f-8d53-6e4f3a2b1c09', 'Quillon Trust Company', 'quillon', 'enterprise', 140, 200, 'active', 75),
 ]
 
 /** The response shape, picked field by field so nothing else can leak. */
-function toDto(r: TenantRecord): Tenant {
+export function toDto(r: TenantRecord): Tenant {
   return {
     id: r.id,
     name: r.name,
