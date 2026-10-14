@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ApiError } from '@/lib/api'
 import { formatDate, formatMonthLong } from '@/lib/format'
+import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { billsKey, extendBill } from '../api/bills'
 import type { Bill, ExtendDays } from '../api/types'
 import { DaysChoice } from './DaysChoice'
@@ -21,9 +22,9 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
   const queryClient = useQueryClient()
   const [days, setDays] = useState<ExtendDays>(DEFAULT_DAYS)
   const [error, setError] = useState<string | null>(null)
-  // The button only turns off after the next render, which can be a tick away: a fast double click
-  // would send the request twice. This flag closes that gap, and it is not idempotent.
-  const inFlight = useRef(false)
+  // Extending is not idempotent and the button only turns off after the next render: the guard
+  // is set in the click handler itself, so a fast double click sends one request.
+  const guard = useSubmitGuard()
 
   const extend = useMutation({
     mutationFn: ({ id, days }: { id: string; days: ExtendDays }) => extendBill(id, { days }),
@@ -40,9 +41,8 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
   })
 
   function submit() {
-    if (!bill || inFlight.current) return
-    inFlight.current = true
-    extend.mutate({ id: bill.id, days }, { onSettled: () => (inFlight.current = false) })
+    if (!bill) return
+    void guard.run(() => extend.mutateAsync({ id: bill.id, days }))
   }
 
   function close() {

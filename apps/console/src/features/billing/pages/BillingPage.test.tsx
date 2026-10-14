@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -520,9 +520,11 @@ describe('BillingPage: extending a deadline', () => {
     await ready()
     const { dialog } = await extendDialog()
     const extend = within(dialog).getByRole('button', { name: 'Extend deadline' })
-    fireEvent.click(extend) // both clicks land before the page has re-rendered the button as disabled
-    fireEvent.click(extend)
-    fireEvent.click(extend)
+    act(() => {
+      fireEvent.click(extend) // one act: React renders nothing between the clicks, so the button is still enabled
+      fireEvent.click(extend)
+      fireEvent.click(extend)
+    })
     expect(await screen.findByText('Deadline extended by 14 days')).toBeInTheDocument()
     expect(posts()).toHaveLength(1)
   })

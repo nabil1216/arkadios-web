@@ -8,6 +8,7 @@ import { NativeSelect } from '@/components/NativeSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/api'
+import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { createTenant } from '../api/tenants'
 import {
   DOMAIN_PATTERN,
@@ -47,6 +48,7 @@ interface CreateTenantFormProps {
 
 export function CreateTenantForm({ options, onAccepted, onCancel }: CreateTenantFormProps) {
   const [formError, setFormError] = useState<string | null>(null)
+  const guard = useSubmitGuard()
   // The domain follows the company name until the person types in it, as in the demo.
   const domainEdited = useRef(false)
   const {
@@ -92,14 +94,17 @@ export function CreateTenantForm({ options, onAccepted, onCancel }: CreateTenant
 
   const onSubmit = handleSubmit((values) => {
     setFormError(null)
-    create.mutate({
-      name: values.name,
-      domain: values.domain,
-      planId: values.planId as PlanId,
-      userLimit: values.userLimit,
-      region: values.region,
-      adminEmail: values.adminEmail,
-    })
+    // Creating starts provisioning: a second submit in the same instant must not start another.
+    void guard.run(() =>
+      create.mutateAsync({
+        name: values.name,
+        domain: values.domain,
+        planId: values.planId as PlanId,
+        userLimit: values.userLimit,
+        region: values.region,
+        adminEmail: values.adminEmail,
+      }),
+    )
   })
 
   const invalid = (name: keyof Values) => (errors[name] ? true : undefined)

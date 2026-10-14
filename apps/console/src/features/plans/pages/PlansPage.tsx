@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Can } from '@/features/auth/components/Can'
 import { usePermission } from '@/features/auth/hooks/usePermission'
 import { ApiError } from '@/lib/api'
+import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { fetchPlans, plansKey, updatePlan } from '../api/plans'
 import type { Plan, PlanModule, PlansResponse } from '../api/types'
 import { ConfirmOffDialog } from '../components/ConfirmOffDialog'
@@ -53,6 +54,7 @@ export default function PlansPage() {
   const modules = data?.modules ?? NO_MODULES
   const { drafts, changedIds, dirty, setModule, setTrialDays, discard } = usePlanDrafts(plans, modules)
 
+  const guard = useSubmitGuard()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [problems, setProblems] = useState<Array<{ text: string; conflict: boolean }>>([])
 
@@ -79,7 +81,7 @@ export default function PlansPage() {
 
   function runSave() {
     setProblems([])
-    save.mutate(changedPlans.map((plan) => ({ plan, draft: drafts[plan.id] })))
+    void guard.run(() => save.mutateAsync(changedPlans.map((plan) => ({ plan, draft: drafts[plan.id] }))))
   }
 
   function onSave() {

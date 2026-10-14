@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderRoutes } from '@/test/render'
@@ -175,6 +175,19 @@ describe('CreateTenantForm', () => {
   })
 
   describe('submit', () => {
+    it('sends one request even when the button is clicked twice in the same instant', async () => {
+      fetchMock.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(accepted()), 100))) // still running at the second click
+      const { user, onAccepted } = setup()
+      await fillValid(user)
+      const button = screen.getByRole('button', { name: 'Create tenant' })
+      act(() => {
+        fireEvent.click(button) // one act: React renders nothing between the clicks, so the button is still enabled
+        fireEvent.click(button)
+      })
+      await waitFor(() => expect(onAccepted).toHaveBeenCalledTimes(1))
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
     it('sends the ids and numbers the server expects, then tells the parent', async () => {
       const { user, onAccepted } = setup()
       await user.type(field('Company name'), '  Harbor Lane Advisors ')

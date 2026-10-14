@@ -32,6 +32,11 @@ Existing checks to port: docs/handoff/tests/
 - No dangerouslySetInnerHTML. Forms use Zod schemas.
 - Every list: loading, empty, error state. Every mutation: invalidate
   its feature query key.
+- Double submit: every submit that must not run twice (save, create, extend,
+  invite, remove) goes through useSubmitGuard (src/lib). The guard is set in the
+  click or submit handler itself, not only by a disabled state after render.
+  Each one needs a same-instant double-click test (both clicks inside one act()).
+- Dialogs: Cancel is focused first. The confirm button uses useSubmitGuard.
 - API calls go through MSW handlers until real endpoints exist.
 - shadcn/ui: never overwrite existing components (no --overwrite; if the CLI
   asks, answer no and use the existing file). After every shadcn run, check

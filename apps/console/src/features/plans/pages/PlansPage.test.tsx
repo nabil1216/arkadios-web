@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -291,6 +291,19 @@ describe('PlansPage: saving', () => {
     expect(discard()).toBeDisabled()
     await screen.findByText(/Could not save Professional/)
     expect(sw('integrations', 'professional')).toBeEnabled()
+  })
+
+  it('sends one request per plan even when Save is clicked twice in the same instant', async () => {
+    const user = userEvent.setup()
+    open()
+    await loaded()
+    await user.click(sw('integrations', 'professional'))
+    act(() => {
+      fireEvent.click(save()) // one act: React renders nothing between the clicks, so Save is still enabled
+      fireEvent.click(save())
+    })
+    expect(await screen.findByText('Plan changes saved')).toBeInTheDocument()
+    expect(puts()).toHaveLength(1)
   })
 
   it('keeps what was saved when the page is opened again (navigate away and back)', async () => {
