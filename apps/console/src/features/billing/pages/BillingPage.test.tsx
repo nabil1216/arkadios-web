@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -515,6 +515,18 @@ describe('BillingPage: extending a deadline', () => {
     expect(within(dialog).getByRole('button', { name: 'Close' })).toBeInTheDocument() // the drawer's own X is back
   })
 
+  it('sends one request even when the button is clicked twice in the same instant', async () => {
+    open()
+    await ready()
+    const { dialog } = await extendDialog()
+    const extend = within(dialog).getByRole('button', { name: 'Extend deadline' })
+    fireEvent.click(extend) // both clicks land before the page has re-rendered the button as disabled
+    fireEvent.click(extend)
+    fireEvent.click(extend)
+    expect(await screen.findByText('Deadline extended by 14 days')).toBeInTheDocument()
+    expect(posts()).toHaveLength(1)
+  })
+
   it('shows the server\'s reason when the bill was paid in the meantime', async () => {
     server.use(http.post(`${API_BASE}/bills/:id/extend`, () => problem(409, 'conflict', 'Conflict', { detail: 'This bill is already paid.' })))
     open()
@@ -599,6 +611,17 @@ describe('BillingPage: invoices', () => {
     await screen.findByText('Invoice downloaded')
     expect(button).toBeEnabled()
     expect(requests(/\/invoice$/)).toHaveLength(1)
+  })
+
+  it('fetches the file once when the button is clicked twice in the same instant', async () => {
+    open()
+    await ready()
+    const button = invoiceButton('Arkadios Home Office')
+    fireEvent.click(button)
+    fireEvent.click(button)
+    await screen.findByText('Invoice downloaded')
+    expect(requests(/\/invoice$/)).toHaveLength(1)
+    expect(saved).toHaveLength(1)
   })
 
   it('says so when the invoice cannot be downloaded', async () => {

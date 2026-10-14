@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -21,6 +21,9 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
   const queryClient = useQueryClient()
   const [days, setDays] = useState<ExtendDays>(DEFAULT_DAYS)
   const [error, setError] = useState<string | null>(null)
+  // The button only turns off after the next render, which can be a tick away: a fast double click
+  // would send the request twice. This flag closes that gap, and it is not idempotent.
+  const inFlight = useRef(false)
 
   const extend = useMutation({
     mutationFn: ({ id, days }: { id: string; days: ExtendDays }) => extendBill(id, { days }),
@@ -35,6 +38,12 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
       else setError('Could not extend the deadline. Try again.')
     },
   })
+
+  function submit() {
+    if (!bill || inFlight.current) return
+    inFlight.current = true
+    extend.mutate({ id: bill.id, days }, { onSettled: () => (inFlight.current = false) })
+  }
 
   function close() {
     setDays(DEFAULT_DAYS)
@@ -76,7 +85,7 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
           <Button variant="secondary" onClick={close} disabled={extend.isPending}>
             Cancel
           </Button>
-          <Button disabled={extend.isPending || !bill} onClick={() => bill && extend.mutate({ id: bill.id, days })}>
+          <Button disabled={extend.isPending || !bill} onClick={submit}>
             Extend deadline
           </Button>
         </DialogFooter>
