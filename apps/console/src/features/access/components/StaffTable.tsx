@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button'
 import { NativeSelect } from '@/components/NativeSelect'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -11,6 +12,17 @@ const HEAD = 'h-auto border-b border-line bg-[#f8fafb] px-3.5 py-2.5 font-semibo
 const CELL = 'px-3.5 py-3 align-middle whitespace-normal'
 const ROLE_IDS = Object.keys(ROLE_LABELS) as Role[]
 
+/** What the row buttons and role selects do. Without it the table is read only. */
+export interface StaffActions {
+  /** A change is running: everything waits. */
+  busy: boolean
+  onRoleChange: (member: StaffMember, role: Role) => void
+  onDeactivate: (member: StaffMember) => void
+  onReactivate: (member: StaffMember) => void
+  onRemove: (member: StaffMember) => void
+  onResend: (member: StaffMember) => void
+}
+
 interface StaffTableProps {
   /** Undefined while the staff are loading. */
   members: StaffMember[] | undefined
@@ -18,10 +30,30 @@ interface StaffTableProps {
   roles: RoleInfo[] | undefined
   /** The signed-in person: their own row says "(you)" and their role stays locked. */
   selfId: string | undefined
+  actions?: StaffActions
+}
+
+function RowButtons({ member, actions }: { member: StaffMember; actions: StaffActions }) {
+  const button = (label: string, onClick: () => void) => (
+    <Button variant="ghost" size="sm" className="text-teal-ink" disabled={actions.busy} onClick={onClick}>
+      {label}
+      {/* A text node carries the space: one inside the hidden span is dropped from the accessible name. */}
+      {' '}
+      <span className="sr-only">{member.name}</span>
+    </Button>
+  )
+  return (
+    <div className="flex flex-wrap justify-end gap-1">
+      {member.status === 'invited' ? button('Resend invite', () => actions.onResend(member)) : null}
+      {member.status === 'active' ? button('Deactivate', () => actions.onDeactivate(member)) : null}
+      {member.status === 'deactivated' ? button('Reactivate', () => actions.onReactivate(member)) : null}
+      {button('Remove', () => actions.onRemove(member))}
+    </div>
+  )
 }
 
 /** The demo's staff table: who can use the console, their role, MFA, last active and status. */
-export function StaffTable({ members, roles, selfId }: StaffTableProps) {
+export function StaffTable({ members, roles, selfId, actions }: StaffTableProps) {
   const roleName = (id: Role) => roles?.find((r) => r.id === id)?.name ?? ROLE_LABELS[id]
   const options = roles ? roles.map((r) => r.id) : ROLE_IDS
 
@@ -75,8 +107,9 @@ export function StaffTable({ members, roles, selfId }: StaffTableProps) {
                         id={`role-${m.id}`}
                         aria-label={`Role for ${m.name}`}
                         value={m.role}
-                        disabled
-                        onChange={() => {}}
+                        // Your own role stays locked; a deactivated person has nothing to change.
+                        disabled={!actions || actions.busy || self || m.status === 'deactivated'}
+                        onChange={(e) => actions?.onRoleChange(m, e.target.value as Role)}
                         className="w-[170px]"
                       >
                         {options.map((id) => (
@@ -93,7 +126,7 @@ export function StaffTable({ members, roles, selfId }: StaffTableProps) {
                     <TableCell className={CELL}>
                       <StatusBadge kind={m.status} />
                     </TableCell>
-                    <TableCell className={CELL} />
+                    <TableCell className={CELL}>{actions && !self ? <RowButtons member={m} actions={actions} /> : null}</TableCell>
                   </TableRow>
                 )
               })}

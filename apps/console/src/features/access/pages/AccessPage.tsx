@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { PageHeader } from '@/components/PageHeader'
 import { QueryErrorPanel } from '@/components/QueryErrorPanel'
+import { usePermission } from '@/features/auth/hooks/usePermission'
 import { useSession } from '@/features/auth/hooks/session'
 import { RolesMatrix } from '../components/RolesMatrix'
 import { SignInSecurity } from '../components/SignInSecurity'
-import { StaffTable } from '../components/StaffTable'
+import { StaffSection } from '../components/StaffSection'
 import { useRoles, useStaff } from '../hooks/useAccessData'
 
 function Panel({ id, title, aside, children }: { id: string; title: string; aside?: ReactNode; children: ReactNode }) {
@@ -25,6 +26,7 @@ export default function AccessPage() {
   const session = useSession()
   const staff = useStaff()
   const roles = useRoles()
+  const canManage = usePermission('access.manage').allowed
   const members = staff.data?.items
   const selfId = session.status === 'authenticated' ? session.user.id : undefined
   const idleMinutes = session.status === 'authenticated' ? session.idleMinutes : undefined
@@ -41,7 +43,7 @@ export default function AccessPage() {
         ) : members && members.length === 0 ? (
           <p className="px-3.5 py-8 text-center text-ink-2">There is no one with access yet.</p>
         ) : (
-          <StaffTable members={members} roles={roles.data?.items} selfId={selfId} />
+          <StaffSection members={members} roles={roles.data?.items} selfId={selfId} canManage={canManage} />
         )}
       </Panel>
 
