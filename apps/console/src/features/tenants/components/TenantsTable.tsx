@@ -8,6 +8,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Meter } from '@/components/Meter'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,8 +26,12 @@ const helper = createColumnHelper<typeof features, Tenant>()
 export const COMING_LATER = 'Coming in a later step'
 export const COMING_LATER_ID = 'coming-later-hint'
 
-/** Manage and View do nothing yet: the drawer is a later step. */
-function RowAction({ tenant }: { tenant: Tenant }) {
+// Teal ghost buttons from the demo (.btn--ghost .btn--small). They do nothing yet: the drawer and
+// the support session are later steps, so they stay focusable but aria-disabled, with a hint.
+const ROW_BUTTON =
+  'inline-flex min-h-[30px] cursor-not-allowed items-center rounded-md px-2 text-[13px] font-medium whitespace-nowrap text-teal-ink'
+
+function PendingRowButton({ label, tenantName, children }: { label: string; tenantName: string; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -34,15 +39,32 @@ function RowAction({ tenant }: { tenant: Tenant }) {
       aria-describedby={COMING_LATER_ID}
       title={COMING_LATER}
       onClick={(e) => e.preventDefault()}
-      className="inline-flex min-h-[30px] cursor-not-allowed items-center rounded-md px-2 text-[13px] font-medium text-teal-ink opacity-50"
+      className={ROW_BUTTON}
+      data-action={label}
     >
-      <Can permission="tenants.manage" fallback="View">
-        Manage
-      </Can>
+      {children}
       {/* A text node carries the space: one inside the hidden span is dropped from the accessible name. */}
       {' '}
-      <span className="sr-only">{tenant.name}</span>
+      <span className="sr-only">{tenantName}</span>
     </button>
+  )
+}
+
+function RowActions({ tenant }: { tenant: Tenant }) {
+  return (
+    <div className="flex justify-end gap-1">
+      <PendingRowButton label="manage" tenantName={tenant.name}>
+        <Can permission="tenants.manage" fallback="View">
+          Manage
+        </Can>
+      </PendingRowButton>
+      {/* As in the demo, only roles that can run support sessions get Sign in as. */}
+      <Can permission="support.manage">
+        <PendingRowButton label="sign-in-as" tenantName={`a user of ${tenant.name}`}>
+          Sign in as
+        </PendingRowButton>
+      </Can>
+    </div>
   )
 }
 
@@ -89,11 +111,7 @@ const columns = helper.columns([
     id: 'actions',
     header: () => <span className="sr-only">Actions</span>,
     enableSorting: false,
-    cell: ({ row }) => (
-      <div className="flex justify-end gap-1">
-        <RowAction tenant={row.original} />
-      </div>
-    ),
+    cell: ({ row }) => <RowActions tenant={row.original} />,
   }),
 ])
 
@@ -195,7 +213,7 @@ export function TenantsTable({ items, total, page, pageSize, sort, onSort, busy,
             rows.map((row) => (
               <TableRow key={row.id} data-id={row.original.id} className="hover:bg-transparent">
                 {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id} className={cn(CELL, cell.column.id === 'name' && 'min-w-[150px]')}>
+                  <TableCell key={cell.id} className={cn(CELL, cell.column.id === 'name' && 'min-w-[150px] whitespace-normal')}>
                     <table.FlexRender cell={cell} />
                   </TableCell>
                 ))}

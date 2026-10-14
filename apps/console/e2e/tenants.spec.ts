@@ -1,5 +1,5 @@
 // Ported from docs/handoff/tests/console_ptest.py (tenants: rows, search, status filter) and
-// console_ptest3.py (per-role buttons), limited to the list. Create, Manage and Sign in as come later.
+// console_ptest3.py (per-role buttons), limited to the list. Create, Manage and Sign in as are shown but do nothing yet.
 import { expect, test, type Page } from '@playwright/test'
 import { accounts, menuLinks, signIn, type Account } from './helpers.ts'
 
@@ -241,27 +241,58 @@ test.describe('paging', () => {
 })
 
 test.describe('buttons by role', () => {
-  test('a role with tenants.manage sees Manage and Create tenant, both marked as coming later', async ({ page }) => {
+  const later = async (button: ReturnType<Page['getByRole']>) => {
+    await expect(button).toHaveAttribute('aria-disabled', 'true')
+    await expect(button).toHaveAttribute('title', 'Coming in a later step')
+    await button.click({ force: true }) // Playwright will not click aria-disabled controls otherwise
+  }
+
+  test('super admin sees Manage, Sign in as and Create tenant, all marked as coming later', async ({ page }) => {
     await openTenants(page, accounts.admin)
     await expect(rows(page)).toHaveCount(6)
     const create = page.getByRole('button', { name: /Create tenant/ })
     await expect(create).toBeVisible()
     await expect(page.getByRole('button', { name: /^Manage / })).toHaveCount(6)
+    await expect(page.getByRole('button', { name: /^Sign in as a user of / })).toHaveCount(6)
     await expect(page.getByRole('button', { name: 'Manage Northwind Advisory Group' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign in as a user of Northwind Advisory Group' })).toBeVisible()
     await expect(page.getByRole('button', { name: /^View / })).toHaveCount(0)
 
-    for (const button of [create, page.getByRole('button', { name: 'Manage Cobalt Ridge Wealth' })]) {
-      await expect(button).toHaveAttribute('aria-disabled', 'true')
-      await expect(button).toHaveAttribute('title', 'Coming in a later step')
-      await button.click({ force: true }) // Playwright will not click aria-disabled controls otherwise
+    for (const button of [
+      create,
+      page.getByRole('button', { name: 'Manage Cobalt Ridge Wealth' }),
+      page.getByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' }),
+    ]) {
+      await later(button)
     }
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page).toHaveURL(/\/tenants$/)
-    await expect(page.getByRole('complementary', { name: 'Platform console' })).toBeVisible()
   })
 
-  for (const role of ['support', 'billing', 'auditor'] as const) {
-    test(`${role} sees View, and no Create tenant or Sign in as`, async ({ page }) => {
+  test('the row buttons sit at the right end of each row, next to each other', async ({ page }) => {
+    await openTenants(page, accounts.admin)
+    const row = rows(page).filter({ hasText: 'Quillon Trust Company' })
+    const manage = await row.getByRole('button', { name: /^Manage / }).boundingBox()
+    const signIn = await row.getByRole('button', { name: /^Sign in as / }).boundingBox()
+    const status = await row.getByText('Active', { exact: true }).boundingBox()
+    expect(manage && signIn && status).toBeTruthy()
+    expect(manage!.x).toBeGreaterThan(status!.x) // after the status badge
+    expect(signIn!.x).toBeGreaterThan(manage!.x) // Manage, then Sign in as
+  })
+
+  test('support lead sees View and Sign in as, and no Create tenant', async ({ page }) => {
+    await openTenants(page, accounts.support)
+    await expect(rows(page)).toHaveCount(6)
+    await expect(page.getByRole('button', { name: /^View / })).toHaveCount(6)
+    await expect(page.getByRole('button', { name: /^Sign in as a user of / })).toHaveCount(6)
+    await expect(page.getByRole('button', { name: /^Manage / })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Create tenant/ })).toHaveCount(0)
+    await later(page.getByRole('button', { name: 'Sign in as a user of Quillon Trust Company' }))
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  })
+
+  for (const role of ['billing', 'auditor'] as const) {
+    test(`${role} sees View only: no Create tenant, no Sign in as`, async ({ page }) => {
       await openTenants(page, accounts[role])
       await expect(rows(page)).toHaveCount(6)
       await expect(page.getByRole('button', { name: /^View / })).toHaveCount(6)

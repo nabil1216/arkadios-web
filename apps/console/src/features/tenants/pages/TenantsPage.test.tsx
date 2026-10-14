@@ -323,18 +323,34 @@ describe('TenantsPage permissions', () => {
     expect(screen.queryByRole('button', { name: /Create tenant/ })).not.toBeInTheDocument()
   })
 
-  it('does not render Sign in as', async () => {
-    open('', 'support')
-    await waitFor(() => expect(rowCount()).toBe(6))
-    expect(screen.queryByRole('button', { name: /Sign in as/i })).not.toBeInTheDocument()
+  it('offers Sign in as only to roles with support.manage', async () => {
+    const { unmount } = open('', 'support')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Sign in as a user of / })).toHaveLength(6))
+    expect(screen.getByRole('button', { name: 'Sign in as a user of Northwind Advisory Group' })).toBeInTheDocument()
+    unmount()
+    sessionStore.reset()
+
+    const admin = open('', 'admin')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Sign in as a user of / })).toHaveLength(6))
+    admin.unmount()
+    sessionStore.reset()
+
+    for (const role of ['billing', 'auditor'] as const) {
+      const view = open('', role)
+      await waitFor(() => expect(screen.getAllByRole('button', { name: /^View / })).toHaveLength(6))
+      expect(screen.queryByRole('button', { name: /Sign in as/i })).not.toBeInTheDocument()
+      view.unmount()
+      sessionStore.reset()
+    }
   })
 
-  it('marks Manage and Create tenant as coming in a later step, and they do nothing', async () => {
+  it('marks Manage, Sign in as and Create tenant as coming in a later step, and they do nothing', async () => {
     const user = userEvent.setup()
     const { router } = open('', 'admin')
     const create = await screen.findByRole('button', { name: /Create tenant/ })
     const manage = await screen.findByRole('button', { name: 'Manage Cobalt Ridge Wealth' })
-    for (const button of [create, manage]) {
+    const signInAs = await screen.findByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' })
+    for (const button of [create, manage, signInAs]) {
       expect(button).toHaveAttribute('aria-disabled', 'true')
       expect(button).toHaveAttribute('title', 'Coming in a later step')
       expect(button).toHaveAccessibleDescription('Coming in a later step')
