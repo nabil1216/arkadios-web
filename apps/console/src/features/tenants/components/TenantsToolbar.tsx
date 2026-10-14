@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { NativeSelect } from '@/components/NativeSelect'
 import { Input } from '@/components/ui/input'
 import { TENANT_STATUSES } from '../api/types'
 import type { TenantListState } from '../hooks/listParams'
@@ -70,18 +71,18 @@ export function TenantsToolbar({ q, status, onSearch, onStatus }: TenantsToolbar
         <label htmlFor="t-status" className="sr-only">
           Filter by status
         </label>
-        <select
+        <NativeSelect
           id="t-status"
           value={status}
           onChange={(e) => onStatus(e.target.value as TenantListState['status'])}
-          className="h-[38px] w-[180px] rounded-md border border-input bg-paper px-2.5 outline-none focus-visible:border-teal"
+          className="w-[180px]"
         >
           {(['all', ...TENANT_STATUSES] as const).map((value) => (
             <option key={value} value={value}>
               {STATUS_LABELS[value]}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
     </div>
   )
