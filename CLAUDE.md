@@ -33,6 +33,11 @@ Existing checks to port: docs/handoff/tests/
 - Every list: loading, empty, error state. Every mutation: invalidate
   its feature query key.
 - API calls go through MSW handlers until real endpoints exist.
+- shadcn/ui: never overwrite existing components (no --overwrite; if the CLI
+  asks, answer no and use the existing file). After every shadcn run, check
+  package.json for a bogus "cn" dependency (remove it and import cn from
+  "@/lib/utils"), and check git diff for unexpected changes to existing files
+  (restore them with git checkout).
 - Small commits, one per plan item.
 
 ## Done means
