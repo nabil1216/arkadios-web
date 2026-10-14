@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, t
 import { API_BASE } from '@/lib/api'
 import { DEMO_CODE, DEMO_PASSWORD, permissions, staff } from './db'
 import { handlers } from './handlers'
+import { resetMockBills } from './bills'
 import { resetMockPlans } from './plans'
 import { resetMockTenants, setProvisionStepMs } from './tenantCreate'
 
@@ -576,5 +577,144 @@ describe('plans', () => {
     await put('essentials', { modules: before.modules, trialDays: 21, version: before.version })
     const options = await (await fetch(url('/tenants/options'), { headers: as('u1') })).json()
     expect(options.plans.find((p: { id: string }) => p.id === 'essentials').trialDays).toBe(21)
+  })
+})
+
+describe('billing', () => {
+  const as = (userId: string) => ({ Authorization: `Bearer mock-access.${userId}` })
+  const get = (path: string, headers: Record<string, string> = as('u1')) => fetch(url(path), { headers })
+  const extend = (id: string, body: unknown, headers: Record<string, string> = as('u1')) => post(`/bills/${id}/extend`, body, headers)
+  interface BillJson {
+    id: string
+    tenantName: string
+    month: string
+    deadline: string
+    status: string
+    payable: { amountMinor: number; currency: string }
+    [key: string]: unknown
+  }
+  const bills = async (query = '') => (await (await get('/bills?pageSize=100' + query)).json()).items as BillJson[]
+
+  beforeEach(() => resetMockBills())
+  afterEach(() => resetMockBills())
+
+  it('needs a token and billing.view on every read, and billing.manage to extend', async () => {
+    const { permissions } = await import('./db')
+    const id = (await bills())[0].id
+    for (const path of ['/bills', '/bills/summary', `/bills/${id}/notice`, `/bills/${id}/invoice`]) {
+      await expectProblem(await get(path, {}), 401)
+    }
+    await expectProblem(await extend(id, { days: 7 }, {}), 401)
+
+    const original = permissions.support
+    permissions.support = original.filter((k) => !k.startsWith('billing.'))
+    try {
+      for (const path of ['/bills', '/bills/summary', `/bills/${id}/notice`, `/bills/${id}/invoice`]) {
+        expect((await expectProblem(await get(path, as('u2')), 403)).detail, path).toBe('Your role does not include Billing.')
+      }
+    } finally {
+      permissions.support = original
+    }
+    // roles with view can read; only roles with manage can extend
+    for (const user of ['u1', 'u2', 'u3', 'u4']) expect((await get('/bills', as(user))).status, user).toBe(200)
+    for (const user of ['u2', 'u4']) {
+      expect((await expectProblem(await extend(id, { days: 7 }, as(user)), 403)).detail, user).toBe('Your role cannot change billing.')
+    }
+    for (const user of ['u1', 'u3']) expect((await extend(id, { days: 7 }, as(user))).status, user).toBe(200)
+  })
+
+  it('lists bills in the envelope with money as integer minor units and a currency code', async () => {
+    const res = await get('/bills')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const body = await res.json()
+    expect(body).toMatchObject({ total: 10, page: 1, pageSize: 25 })
+    expect(body.items[0].status).toBe('overdue') // overdue first, as the demo
+    for (const bill of body.items) {
+      for (const key of ['unitPrice', 'subtotal', 'tax', 'payable']) {
+        expect(Number.isInteger(bill[key].amountMinor), `${key} is an integer`).toBe(true)
+        expect(bill[key].currency).toBe('USD')
+      }
+      expect(Object.keys(bill).sort()).toEqual(
+        ['billedUsers', 'deadline', 'id', 'month', 'payable', 'planId', 'planName', 'status', 'subtotal', 'tax', 'taxRateBps', 'tenantId', 'tenantName', 'unitPrice'].sort(),
+      )
+    }
+  })
+
+  it('filters, sorts and pages from the query string, and says which parameter is wrong', async () => {
+    const body = await (await get('/bills?status=paid&sort=-payable&page=2&pageSize=2')).json()
+    expect(body).toMatchObject({ total: 4, page: 2, pageSize: 2 })
+    expect(body.items.map((b: { tenantName: string }) => b.tenantName.split(' ')[0])).toEqual(['Arkadios', 'Cobalt'])
+    const bad = await expectProblem(await get('/bills?status=late&month=2026-13&sort=id&page=0&pageSize=500'), 400)
+    expect(Object.keys(bad.errors!).sort()).toEqual(['month', 'page', 'pageSize', 'sort', 'status'])
+  })
+
+  it('serves the totals per currency, following the search and the month', async () => {
+    const res = await get('/bills/summary')
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const { totals } = await res.json()
+    expect(totals).toEqual([{ currency: 'USD', billable: 3351240, collected: 1589378, notYetPaid: 1675620, overdue: 86242 }])
+    expect((await (await get('/bills/summary?q=sterling')).json()).totals[0]).toMatchObject({ billable: 172484, overdue: 86242 })
+    expect((await (await get('/bills/summary?q=zzz')).json()).totals).toEqual([])
+    const bad = await expectProblem(await get('/bills/summary?month=nope'), 400)
+    expect(Object.keys(bad.errors!)).toEqual(['month'])
+  })
+
+  it('serves the notice the tenant sees, as plain text, for an unpaid bill', async () => {
+    const bill = (await bills('&status=pending'))[0]
+    const res = await get(`/bills/${bill.id}/notice`)
+    expect(res.status).toBe(200)
+    const notice = await res.json()
+    expect(notice.message).toMatch(/^Your bill for \w+ \d{4} is ready\. Pay your bill before \w{3} \d{1,2}, \d{4}\.$/)
+    expect(notice.amountDue).toEqual(bill.payable)
+    expect(notice.paymentMethods).toEqual(['stripe', 'paypal'])
+    const paid = (await bills('&status=paid'))[0]
+    expect((await expectProblem(await get(`/bills/${paid.id}/notice`), 409)).detail).toBe('This bill is already paid.')
+    await expectProblem(await get('/bills/00000000-0000-4000-8000-000000000000/notice'), 404)
+  })
+
+  it('serves the invoice of a paid bill as a download the server names', async () => {
+    const paid = (await bills('&status=paid'))[0]
+    const res = await get(`/bills/${paid.id}/invoice`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
+    expect(res.headers.get('Content-Disposition')).toBe(`attachment; filename="invoice-${paid.month}-${paid.id}.html"`)
+    expect(res.headers.get('Access-Control-Expose-Headers')).toBe('Content-Disposition')
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store')
+    expect(await res.text()).toContain(paid.tenantName)
+    const unpaid = (await bills('&status=pending'))[0]
+    expect((await expectProblem(await get(`/bills/${unpaid.id}/invoice`), 409)).detail).toBe('Only a paid bill has an invoice.')
+    await expectProblem(await get('/bills/00000000-0000-4000-8000-000000000000/invoice'), 404)
+  })
+
+  it('extends a deadline, returns the bill, and an overdue bill is pending again', async () => {
+    const overdue = (await bills('&status=overdue'))[0]
+    const before = Date.parse(overdue.deadline)
+    const res = await extend(overdue.id, { days: 7 })
+    expect(res.status).toBe(200)
+    const updated = await res.json()
+    expect(updated).toMatchObject({ id: overdue.id, status: 'pending' })
+    expect(Date.parse(updated.deadline)).toBeGreaterThan(before)
+    expect(Math.abs(Date.parse(updated.deadline) - (Date.now() + 7 * 864e5))).toBeLessThan(5000)
+    expect((await bills('&status=overdue')).length).toBe(0)
+  })
+
+  it('answers 400 for other numbers of days and unknown fields, 409 for a paid bill, 404 for an unknown one', async () => {
+    const pending = (await bills('&status=pending'))[0]
+    const bad = await expectProblem(await extend(pending.id, { days: 5 }), 400)
+    expect(bad.errors).toEqual({ days: ['Choose 7, 14 or 30 days.'] })
+    expect((await expectProblem(await extend(pending.id, { days: 7, status: 'paid' }), 400)).errors).toEqual({ status: ['Unknown field.'] })
+    const res = await fetch(url(`/bills/${pending.id}/extend`), { method: 'POST', headers: { ...as('u1'), 'Content-Type': 'application/json' }, body: 'not json' })
+    await expectProblem(res, 400)
+    const paid = (await bills('&status=paid'))[0]
+    expect((await expectProblem(await extend(paid.id, { days: 7 }), 409)).detail).toBe('This bill is already paid.')
+    await expectProblem(await extend('00000000-0000-4000-8000-000000000000', { days: 7 }), 404)
+  })
+
+  it('is not idempotent: extending twice moves the deadline twice', async () => {
+    const pending = (await bills('&status=pending'))[0]
+    const first = await (await extend(pending.id, { days: 7 })).json()
+    const second = await (await extend(pending.id, { days: 7 })).json()
+    expect(Date.parse(second.deadline) - Date.parse(first.deadline)).toBe(7 * 864e5)
   })
 })

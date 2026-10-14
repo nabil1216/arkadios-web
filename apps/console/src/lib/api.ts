@@ -1,3 +1,5 @@
+import { filenameFromDisposition } from './download'
+
 /** Sent on refresh and logout; the server answers 403 without it (on top of SameSite cookies). */
 export const CSRF_HEADER = { name: 'X-Requested-With', value: 'arkadios-web' } as const
 
@@ -79,12 +81,27 @@ async function send(path: string, opts: RequestOptions, token: string | null) {
   })
 }
 
-export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+/** Sends the request with the bearer token, retries once after a 401, and throws an ApiError for any failure. */
+async function request(path: string, opts: RequestOptions): Promise<Response> {
   let res = await send(path, opts, opts.anonymous ? null : hooks.getToken())
   if (res.status === 401 && !opts.anonymous) {
     const token = await hooks.refresh()
     if (token) res = await send(path, opts, token)
   }
   if (!res.ok) throw new ApiError(await readProblem(res))
+  return res
+}
+
+export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await request(path, opts)
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+/**
+ * A file the server sends: the bytes and the name from Content-Disposition (null when it sends none).
+ * A browser link cannot carry the bearer token, so the console fetches the file and saves it itself.
+ */
+export async function apiDownload(path: string, opts: RequestOptions = {}): Promise<{ blob: Blob; filename: string | null }> {
+  const res = await request(path, opts)
+  return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('Content-Disposition')) }
 }

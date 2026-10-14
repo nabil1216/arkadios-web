@@ -3,6 +3,7 @@ import type { SessionResponse } from '@/features/auth/api/types'
 import { API_BASE, CSRF_HEADER } from '@/lib/api'
 import { hasPermission } from '@/features/auth/hooks/permissions'
 import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
+import { extendBill, invoiceOf, noticeOf, queryBills, summarizeBills } from './bills'
 import { listPlans, updatePlan } from './plans'
 import { createTenant, provisioningOf, settleProvisioning, tenantOptions } from './tenantCreate'
 import { queryTenants } from './tenants'
@@ -22,6 +23,13 @@ const plansForbidden = (change = false) =>
   problem(403, 'auth/forbidden', 'Forbidden', {
     detail: change ? 'Your role cannot change plans.' : 'Your role does not include Plans and modules.',
   })
+
+const billingForbidden = (change = false) =>
+  problem(403, 'auth/forbidden', 'Forbidden', {
+    detail: change ? 'Your role cannot change billing.' : 'Your role does not include Billing.',
+  })
+
+const billNotFound = () => problem(404, 'not-found', 'Not found', { detail: 'No such bill.' })
 
 function findActive(id: string): SeedStaff | undefined {
   return staff.find((u) => u.id === id && u.status === 'active')
@@ -260,6 +268,69 @@ export const handlers = [
     return result.status === 409
       ? problem(409, 'conflict', 'Conflict', { detail: 'This plan was changed by someone else.', errors: result.errors })
       : problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+  }),
+
+  http.get(`${API_BASE}/bills`, async ({ request }) => {
+    await delay(150)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'billing.view')) return billingForbidden()
+    const result = queryBills(new URL(request.url).searchParams)
+    if (!result.ok) return problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+    return HttpResponse.json(result.body, { headers: { 'Cache-Control': 'no-store' } })
+  }),
+
+  // Totals per currency for the bills in scope (q and month).
+  http.get(`${API_BASE}/bills/summary`, async ({ request }) => {
+    await delay(120)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'billing.view')) return billingForbidden()
+    const result = summarizeBills(new URL(request.url).searchParams)
+    if (!result.ok) return problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+    return HttpResponse.json(result.body, { headers: { 'Cache-Control': 'no-store' } })
+  }),
+
+  http.get(`${API_BASE}/bills/:id/notice`, async ({ request, params }) => {
+    await delay(100)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'billing.view')) return billingForbidden()
+    const result = noticeOf(String(params.id))
+    if (result.ok) return HttpResponse.json(result.notice, { headers: { 'Cache-Control': 'no-store' } })
+    return result.status === 404 ? billNotFound() : problem(409, 'conflict', 'Conflict', { detail: 'This bill is already paid.' })
+  }),
+
+  http.get(`${API_BASE}/bills/:id/invoice`, async ({ request, params }) => {
+    await delay(100)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'billing.view')) return billingForbidden()
+    const result = invoiceOf(String(params.id))
+    if (!result.ok) {
+      return result.status === 404 ? billNotFound() : problem(409, 'conflict', 'Conflict', { detail: 'Only a paid bill has an invoice.' })
+    }
+    return new HttpResponse(result.html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        // The file name is the server's, built from the bill id and month. A cross-origin client needs it exposed.
+        'Content-Disposition': `attachment; filename="${result.filename}"`,
+        'Access-Control-Expose-Headers': 'Content-Disposition',
+        'Cache-Control': 'private, no-store',
+      },
+    })
+  }),
+
+  http.post(`${API_BASE}/bills/:id/extend`, async ({ request, params }) => {
+    await delay(200)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'billing.manage')) return billingForbidden(true)
+    const result = extendBill(String(params.id), await request.json().catch(() => null))
+    if (result.ok) return HttpResponse.json(result.bill, { headers: { 'Cache-Control': 'no-store' } })
+    if (result.status === 404) return billNotFound()
+    if (result.status === 409) return problem(409, 'conflict', 'Conflict', { detail: 'This bill is already paid.' })
+    return problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
   }),
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {

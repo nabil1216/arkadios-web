@@ -213,6 +213,12 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
 - Refresh and logout require the custom header `X-Requested-With: arkadios-web` (403 without it), on top of `SameSite` cookies.
   The backend may upgrade this to a double-submit token later; the UI change would be one header.
 - A reused or invalid refresh token ends the session and the client returns to login.
+- Money: `{ amountMinor, currency }`. `amountMinor` is an integer in the currency's minor unit (cents for USD) and `currency` is
+  an ISO 4217 code. A float never appears in a money field, in a request or a response. The server does all money arithmetic
+  (a tax is rounded half up to a whole minor unit); the client only formats for display, using the currency's own number of
+  decimal places. Amounts in different currencies are never added together.
+- Dates and times: ISO 8601 UTC date-times such as `2026-10-21T09:00:00.000Z`. The client shows them in the viewer's local time.
+  A calendar month is `YYYY-MM`.
 
 **Tenants list (platform API; other lists follow the same shape)**
 - `GET /tenants?q=&status=&sort=&page=&pageSize=`. Needs `tenants.view`: `401` without a valid token, `403` without the key.
@@ -285,6 +291,48 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
     the change on their next request.
   - Each change writes a `PlatformAuditLog` entry: who, which plan, and what changed (modules switched on or off, trial length).
   - Only `plans.manage` can write. Reads and writes never touch tenant databases.
+
+**Billing (platform API)**
+- A bill is `{ id, tenantId, tenantName, month, planId, planName, billedUsers, unitPrice, subtotal, tax, taxRateBps, payable, deadline, status }`.
+  `id` is an opaque GUID and `month` is `YYYY-MM`. `unitPrice`, `subtotal`, `tax` and `payable` are Money. `taxRateBps` is an integer
+  in basis points (700 is 7%). The server computes `subtotal` (billed users times unit price), `tax` (subtotal times the rate, rounded
+  half up) and `payable` (subtotal plus tax); the client never does money arithmetic. `deadline` is an ISO 8601 UTC date-time.
+  `status` is `pending`, `paid` or `overdue`, derived by the server: paid wins, otherwise a deadline in the past means overdue.
+- `GET /bills?q=&status=&month=&sort=&page=&pageSize=` returns the list envelope. Needs `billing.view`. `Cache-Control: no-store`.
+  - `q`: optional text, trimmed, at most 100 characters, matched case-insensitively as "contains" against the tenant name.
+    `%` and `_` are plain characters.
+  - `status`: optional, `pending`, `paid` or `overdue`. `month`: optional, `YYYY-MM`.
+  - `sort`: one key from the whitelist `status`, `tenant`, `month`, `payable`, `deadline`; a leading `-` means descending. Default
+    `status`, which orders overdue, then pending, then paid. Ties fall back to tenant name, then month, then `id`, ascending,
+    whatever the direction.
+  - Paging is the same as the tenants list: `page` from 1, `pageSize` 1 to 100 (default 25), and a page past the end returns empty
+    `items` with the real `total`.
+  - Invalid parameters return `400` with `errors` keyed `q`, `status`, `month`, `sort`, `page` and `pageSize`, every bad one at once.
+- `GET /bills/summary?q=&month=` returns `{ totals }`. Needs `billing.view`. `totals` has one entry per currency:
+  `{ currency, billable, collected, notYetPaid, overdue }`, where every amount is an integer in that currency's minor unit.
+  It covers the bills that match `q` and `month`. `status` is not a filter here, because the four totals already split by status.
+  With nothing in scope `totals` is `[]`. A bad `q` or `month` returns `400`.
+- `GET /bills/{id}/notice` returns `{ message, amountDue, paymentMethods }`: the notice the tenant sees at the top of its workspace.
+  Needs `billing.view`. `message` is plain text written by the server, so the console previews exactly what the tenant gets; the
+  console renders it as text, never as HTML. `amountDue` is Money and `paymentMethods` is a list such as `["stripe", "paypal"]`.
+  `409` for a paid bill, `404` for an unknown id.
+- `GET /bills/{id}/invoice` returns the invoice as a file download. Needs `billing.view`. Only a paid bill has an invoice (`409`
+  otherwise, `404` for an unknown id). The file name comes from `Content-Disposition`, and the response is
+  `Cache-Control: private, no-store`. The media type may change (the mock returns the demo's sample HTML; the backend is expected to
+  return a PDF), so the client uses the `Content-Type` and file name the server sends.
+- `POST /bills/{id}/extend` with `{ days }`, where `days` is 7, 14 or 30. Needs `billing.manage`. The new deadline is the later of
+  now and the current deadline, plus `days`. An overdue bill is pending again. It returns the updated bill.
+  - `400` with `errors.days` for any other number, and for unknown fields. `409` for a paid bill. `404` for an unknown id.
+  - The request is not idempotent: every call extends again. The backend may add an `Idempotency-Key` header later; the UI change
+    would be one header. The console disables the button while the request runs.
+- Backend notes:
+  - Each extension writes a `PlatformAuditLog` entry that records who made it, the old deadline and the new deadline.
+  - A cap on the total extension per bill is a business rule to confirm with the client (60 days is the suggestion). It would be
+    refused with `409`. The mock does not enforce a cap.
+  - CORS must expose `Content-Disposition` (`Access-Control-Expose-Headers`), or a cross-origin console cannot read the invoice file name.
+  - The invoice file name is built by the server from the bill id and the month (for example `invoice-2026-09-<bill id>`), never
+    from user input or tenant names.
+  - Payments through Stripe or PayPal and bank transfers belong to the Transactions contract, not to this one.
 
 **Password reset (platform API; the tenant API follows the same shape)**
 - `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists

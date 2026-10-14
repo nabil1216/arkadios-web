@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError } from './api'
+import { api, apiDownload, ApiError } from './api'
 
 function respond(body: BodyInit | null, init: ResponseInit) {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, init)))
@@ -56,5 +56,31 @@ describe('api errors', () => {
     respond(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
     await api('/permissions', { anonymous: true })
     expect(fetch).toHaveBeenCalledWith('/api/platform/v1/permissions', expect.anything())
+  })
+})
+
+describe('apiDownload', () => {
+  it('returns the bytes and the file name the server sends', async () => {
+    respond('<html>invoice</html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html', 'Content-Disposition': 'attachment; filename="invoice-2026-09-abc.html"' },
+    })
+    const { blob, filename } = await apiDownload('/bills/abc/invoice')
+    expect(filename).toBe('invoice-2026-09-abc.html')
+    expect(await blob.text()).toBe('<html>invoice</html>')
+    expect(fetch).toHaveBeenCalledWith('/api/platform/v1/bills/abc/invoice', expect.objectContaining({ method: 'GET', credentials: 'include' }))
+  })
+
+  it('has no file name when the server sends none', async () => {
+    respond('x', { status: 200 })
+    expect((await apiDownload('/x')).filename).toBeNull()
+  })
+
+  it('throws the problem when the server refuses', async () => {
+    respond(JSON.stringify({ title: 'Conflict', status: 409, detail: 'Only a paid bill has an invoice.' }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/problem+json' },
+    })
+    await expect(apiDownload('/bills/abc/invoice')).rejects.toMatchObject({ status: 409, message: 'Only a paid bill has an invoice.' })
   })
 })
