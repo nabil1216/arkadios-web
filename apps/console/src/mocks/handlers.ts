@@ -5,6 +5,18 @@ import { hasPermission } from '@/features/auth/hooks/permissions'
 import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
 import { extendBill, invoiceOf, noticeOf, queryBills, summarizeBills } from './bills'
 import { listPlans, updatePlan } from './plans'
+import {
+  activateInvited,
+  inviteStaff,
+  listRoles,
+  listStaff,
+  removeStaff,
+  resendInvite,
+  updateRole,
+  updateStaff,
+  type Failure,
+  type Outcome,
+} from './staff'
 import { createTenant, provisioningOf, settleProvisioning, tenantOptions } from './tenantCreate'
 import { queryTenants } from './tenants'
 import { ACCESS_TOKEN_SECONDS, DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
@@ -29,15 +41,30 @@ const billingForbidden = (change = false) =>
     detail: change ? 'Your role cannot change billing.' : 'Your role does not include Billing.',
   })
 
+const accessForbidden = (change = false) =>
+  problem(403, 'auth/forbidden', 'Forbidden', {
+    detail: change ? 'Your role cannot change access control.' : 'Your role does not include Access control.',
+  })
+
+const asProblem = (f: Failure) => problem(f.status, f.slug, f.title, { detail: f.detail, errors: f.errors })
+
 const billNotFound = () => problem(404, 'not-found', 'Not found', { detail: 'No such bill.' })
 
 function findActive(id: string): SeedStaff | undefined {
   return staff.find((u) => u.id === id && u.status === 'active')
 }
 
+/** A person who can still choose a password: active, or invited and not yet in. */
+function findSettable(id: string): SeedStaff | undefined {
+  return staff.find((u) => u.id === id && (u.status === 'active' || u.status === 'invited'))
+}
+
+/** The access token carries the user id and the security stamp; a bump of the stamp ends it. */
+const accessToken = (user: SeedStaff) => ACCESS_PREFIX + user.id + (user.securityStamp ? `.${user.securityStamp}` : '')
+
 function sessionFor(user: SeedStaff): SessionResponse {
   return {
-    accessToken: ACCESS_PREFIX + user.id,
+    accessToken: accessToken(user),
     expiresIn: ACCESS_TOKEN_SECONDS,
     idleMinutes: IDLE_MINUTES,
     user: { id: user.id, name: user.name, email: user.email, role: user.role, home: homeByRole[user.role] },
@@ -86,7 +113,7 @@ function userForResetToken(token: unknown): SeedStaff | undefined {
   const issuedAt = Number(match[2])
   if (Date.now() - issuedAt > RESET_TTL_MS) return undefined
   if (issuedAt < (latestResetIssuedAt.get(match[1]) ?? 0)) return undefined
-  return findActive(match[1])
+  return findSettable(match[1])
 }
 
 const invalidResetLink = () =>
@@ -110,8 +137,29 @@ function parseRefreshCookie(value: string | undefined) {
 
 function bearerUser(request: Request): SeedStaff | undefined {
   const token = request.headers.get('Authorization')?.replace(/^Bearer /, '')
-  return token?.startsWith(ACCESS_PREFIX) ? findActive(token.slice(ACCESS_PREFIX.length)) : undefined
+  const match = token ? /^mock-access\.([^.]+)(?:\.(\d+))?$/.exec(token) : null
+  const user = match ? findActive(match[1]) : undefined
+  // The role and permissions are resolved from the live data on every request, never from the token.
+  return user && user.securityStamp === Number(match?.[2] ?? 0) ? user : undefined
 }
+
+/** Ends every refresh token of these people (the backend also bumps the stamp and evicts the permission cache). */
+function revokeSessions(userIds: string[]) {
+  for (const id of userIds) families.set(id, { current: families.get(id)?.current ?? 0, revoked: true })
+}
+
+/** Runs the access rules for a signed-in person with the needed key, and maps the outcome to HTTP. */
+async function accessWrite<T>(request: Request, run: (actor: SeedStaff) => Outcome<T>, ok: (value: T) => Response) {
+  const user = bearerUser(request)
+  if (!user) return signInRequired()
+  if (!hasPermission(permissions, user.role, 'access.manage')) return accessForbidden(true)
+  const result = run(user)
+  if (!result.ok) return asProblem(result)
+  revokeSessions(result.revokedUserIds)
+  return ok(result.value)
+}
+
+const noStore = { 'Cache-Control': 'no-store' }
 
 export const handlers = [
   http.post(`${API_BASE}/auth/login`, async ({ request }) => {
@@ -156,6 +204,7 @@ export const handlers = [
       return problem(400, 'validation', 'One or more validation errors occurred.', { errors: { newPassword: [reason] } })
     }
     usedResetTokens.add(token as string)
+    activateInvited(user) // an invited person choosing a password is accepting the invitation
     // All refresh tokens for the user end; the user is not signed in and must pass MFA again.
     const family = families.get(user.id)
     if (family) family.revoked = true
@@ -331,6 +380,80 @@ export const handlers = [
     if (result.status === 404) return billNotFound()
     if (result.status === 409) return problem(409, 'conflict', 'Conflict', { detail: 'This bill is already paid.' })
     return problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+  }),
+
+  http.get(`${API_BASE}/staff`, async ({ request }) => {
+    await delay(150)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'access.view')) return accessForbidden()
+    return HttpResponse.json(listStaff(), { headers: noStore })
+  }),
+
+  http.get(`${API_BASE}/roles`, async ({ request }) => {
+    await delay(150)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'access.view')) return accessForbidden()
+    return HttpResponse.json(listRoles(), { headers: noStore })
+  }),
+
+  http.post(`${API_BASE}/staff`, async ({ request }) => {
+    await delay(200)
+    const body = await request.json().catch(() => null)
+    return accessWrite(
+      request,
+      (actor) => inviteStaff(actor, body),
+      (member) => {
+        const person = staff.find((u) => u.id === member.id)!
+        // The real server sends this from a job; the mock prints the link where the email would be.
+        console.info(`[mock email] Set your password for ${person.email}: ${location.origin}/reset-password#token=${issueResetToken(person)}`)
+        return HttpResponse.json(member, { status: 201, headers: { ...noStore, Location: `${API_BASE}/staff/${member.id}` } })
+      },
+    )
+  }),
+
+  http.post(`${API_BASE}/staff/:id/resend-invite`, async ({ request, params }) => {
+    await delay(200)
+    return accessWrite(
+      request,
+      (actor) => resendInvite(actor, String(params.id)),
+      (member) => {
+        const person = staff.find((u) => u.id === member.id)!
+        console.info(`[mock email] Set your password for ${person.email}: ${location.origin}/reset-password#token=${issueResetToken(person)}`)
+        return new HttpResponse(null, { status: 204 })
+      },
+    )
+  }),
+
+  http.patch(`${API_BASE}/staff/:id`, async ({ request, params }) => {
+    await delay(200)
+    const body = await request.json().catch(() => null)
+    return accessWrite(
+      request,
+      (actor) => updateStaff(actor, String(params.id), body),
+      (member) => HttpResponse.json(member, { headers: noStore }),
+    )
+  }),
+
+  http.delete(`${API_BASE}/staff/:id`, async ({ request, params }) => {
+    await delay(200)
+    const version = new URL(request.url).searchParams.get('version')
+    return accessWrite(
+      request,
+      (actor) => removeStaff(actor, String(params.id), version),
+      () => new HttpResponse(null, { status: 204 }),
+    )
+  }),
+
+  http.put(`${API_BASE}/roles/:role/permissions`, async ({ request, params }) => {
+    await delay(200)
+    const body = await request.json().catch(() => null)
+    return accessWrite(
+      request,
+      (actor) => updateRole(actor, String(params.role), body),
+      (role) => HttpResponse.json(role, { headers: noStore }),
+    )
   }),
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {

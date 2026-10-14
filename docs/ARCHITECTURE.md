@@ -334,6 +334,82 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
     from user input or tenant names.
   - Payments through Stripe or PayPal and bank transfers belong to the Transactions contract, not to this one.
 
+**Access control (platform API)**
+- Assumption: one role per person. A staff member has exactly one role, and a role is a set of permission keys. Several roles per
+  person would change `role` into a list and the escalation check into a union; that is a coordinated change in both repos.
+- Permissions travel as keys on the wire, `<area>.view` and `<area>.manage`, and `manage` implies `view`. The server stores and returns the
+  highest key per area (`billing.manage`, never both), in the catalog order tenants, plans, billing, transactions, sms, support, access.
+  A request that sends both is accepted and stored as the highest.
+- `GET /staff` returns `{ items }`. Needs `access.view`. `Cache-Control: no-store`. It is a small set, so it has no list envelope and no
+  paging, like Plans; items are ordered by `name` ascending, then `id`. Item:
+  `{ id, name, email, role, status, mfaEnrolled, lastActiveAt, version }`. `id` is an opaque GUID, `status` is `active`, `invited` or
+  `deactivated`, `lastActiveAt` is ISO 8601 UTC or `null`, and `version` is the number a write must send back. A removed person is not
+  listed. There is no password field and no MFA setting anywhere in this contract.
+- `GET /roles` returns `{ items }`, one per role. Needs `access.view`. Item: `{ id, name, locked, permissions, staffCount, version }`.
+  `permissions` is the list of keys. `locked` is `true` for Super admin, which cannot be edited. `staffCount` counts the people in the role
+  who are not deactivated (invited people count). `GET /permissions` is unchanged (keys per role, for any signed-in person) and reads the same data.
+- `POST /staff` with `{ name, email, role }` invites a person. Needs `access.manage`. It returns `201` with the new item (`status`
+  `invited`, `mfaEnrolled` `false`) and a `Location` header.
+  - `name`: required, trimmed, at most 100 characters. `email`: a valid address, trimmed, at most 254 characters. `role` is a role id.
+  - **No password is ever sent, shown or set here.** The person gets a set-password link by email, through the same flow as Password reset
+    ("An invited account uses the same flow as set your password"). Choosing a password accepts the invitation: the account becomes `active`
+    and the first sign-in enrols MFA. Unknown fields, `password` and any MFA field among them, are refused with `400`.
+  - `400` with `errors` keyed by field, every bad field in one response. Then `409` `access/escalation` (see Safety rules), then `409`
+    with `errors.email` ("This person already has access.") when the email is already in use, ignoring case. An email of a removed
+    person is free to invite again; it creates a new account with a new `id`.
+- `POST /staff/{id}/resend-invite` returns `204` and sends a new link; earlier links stop working. Needs `access.manage`. `409` unless the
+  person is `invited`, `404` for an unknown id.
+- `PATCH /staff/{id}` with `{ role?, status?, version }`. Needs `access.manage`. `status` is `active` or `deactivated`; `invited` is never
+  set by a client. At least one of `role` and `status` is required. It returns the updated item with `version` one higher.
+  - `400` with `errors` keyed `role`, `status`, `version` or an unknown field name, every bad field at once. `404` for an unknown id.
+  - A stale `version` returns `409` with `errors.version` ("This person was changed by someone else. Reload to see the latest.") and
+    applies nothing. The `400` checks run before the `409` check, and the stale check runs before the safety rules.
+  - `409` for a status that does not fit: only an `active` person can be deactivated, only a `deactivated` person activated.
+  - Sending the role the person already has changes nothing: `200`, no new version, no audit entry.
+- `DELETE /staff/{id}?version=` returns `204`. Needs `access.manage`. `version` is required (`400` without it, `409` when stale).
+  A removed person cannot sign in, has no sessions, and is not listed.
+- `PUT /roles/{role}/permissions` with `{ permissions, version }`. Needs `access.manage`. It replaces the role's keys and returns the role
+  with `version` one higher. `404` for an unknown role. `409` `access/role-locked` for the Super admin role.
+  - `400` with `errors.permissions` (not a list), `errors.permissions.<key>` (unknown key), `errors.version` and unknown field names.
+    A stale `version` is `409` with `errors.version`, same wording pattern as above, and applies nothing.
+- Safety rules. These are `409` problems (`application/problem+json`) whose `type` ends in the slug below and whose `detail` is a
+  sentence the console shows as is. They are server rules, and the console only hides the controls it can predict.
+  | `type` slug | When |
+  |---|---|
+  | `access/self-lockout` | A person changes their own role to one without `access.manage`, or disables or removes themselves, or edits their own role so that it loses `access.manage`. |
+  | `access/last-admin` | The change would leave no **active** person with `access.manage`: demoting, disabling or removing the last one, or removing the key from a role when no active person would be left. An invited or deactivated person does not count. |
+  | `access/last-manager-role` | The change would leave no role that holds `access.manage`. |
+  | `access/escalation` | The person making the change does not hold every key they would hand out: the keys of a role they assign (invite, change a role, reactivate), or a key they add to a role. `manage` covers `view`. |
+  | `access/role-locked` | Editing the Super admin role. |
+  - Order of checks: `403`, `404`, `400`, stale `version`, self lockout, escalation, last admin, last manager role.
+  - Backend: the last-admin and last-manager checks must hold under concurrent requests, not only in a single request. Two admins
+    demoting each other at the same moment would each pass a check made before the other commits, so do the check and the write in one
+    serialized transaction. The self-lockout rule alone cannot stop that.
+- Backend notes:
+  - **Takes effect at once.** A role change, a disable and a removal revoke that person's refresh tokens, bump their security stamp, and
+    evict their cached permission map. An access token carrying the old stamp is refused on its next request (`401`), so the console
+    returns to sign-in. A change to what a role can do evicts the cached permission map for that role instead; nobody is signed out and
+    the new keys apply on the next request.
+  - **Permissions are not stored in the JWT.** The token holds the user id, the role and the security stamp. The server resolves
+    permissions from the cached map (section 7), which is evicted on every change in this section.
+  - **Audit.** Every successful change writes a `PlatformAuditLog` entry: who (actor id, plus a copy of the display name), the action,
+    the entity, and `changes` as a list of `{ field, old, new }`. Actions: `staff.invited`, `staff.invite-resent`, `staff.activated`,
+    `staff.role-changed`, `staff.deactivated`, `staff.reactivated`, `staff.removed`, `role.permissions-changed`. A refused change writes
+    nothing. These are security events (`IsSecurity`). Passwords, tokens and reset links are never logged.
+  - **Remove is a soft delete.** The row stays, hidden from every list and from sign-in. Audit rows keep a copy of the person's name, so
+    history still reads after the person is gone.
+  - **MFA stays required for every platform user.** There is no setting, switch or endpoint for it. `mfaEnrolled` is read only and says
+    whether the person has set it up. A request that sends an MFA field is an unknown field.
+  - **Inactivity sign-out** is a server value (`idleMinutes` in the session response). It is shown read only and nothing here changes
+    or disables it.
+  - **Rate limits.** Invite and resend are rate limited per actor and per target email (`429` with `Retry-After`). The email is sent
+    by the job outbox, not inline, and the response never says whether it was delivered.
+  - The invitation link has a longer expiry than a reset link; the backend decides how long.
+- The console asks before it does any of these, naming the person (or the role and how many people it affects) and what changes:
+  demoting or moving someone to a role with fewer permissions, disabling, removing, inviting or assigning a role that holds
+  `access.manage`, saving a role edit that removes permissions, and granting `access.manage` to a role. The server does not ask. Cancel
+  is focused first in every dialog.
+
 **Password reset (platform API; the tenant API follows the same shape)**
 - `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists
   (no account enumeration). Strict rate limit per IP and per email; `429` with `Retry-After`. The email is sent by a job (outbox), not inline.

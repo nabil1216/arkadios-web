@@ -5,6 +5,7 @@ import { DEMO_CODE, DEMO_PASSWORD, permissions, staff } from './db'
 import { handlers } from './handlers'
 import { resetMockBills } from './bills'
 import { resetMockPlans } from './plans'
+import { platformAuditLog, resetMockStaff } from './staff'
 import { resetMockTenants, setProvisionStepMs } from './tenantCreate'
 
 const server = setupServer(...handlers)
@@ -716,5 +717,227 @@ describe('billing', () => {
     const first = await (await extend(pending.id, { days: 7 })).json()
     const second = await (await extend(pending.id, { days: 7 })).json()
     expect(Date.parse(second.deadline) - Date.parse(first.deadline)).toBe(7 * 864e5)
+  })
+})
+
+describe('Access control endpoints', () => {
+  const as = (userId: string, stamp = 0) => ({ Authorization: `Bearer mock-access.${userId}${stamp ? `.${stamp}` : ''}` })
+  const send = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
+    fetch(url(path), {
+      method,
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  const list = async (headers = as('u1')) => ((await (await send('GET', '/staff', headers)).json()) as { items: Array<{ id: string; version: number; role: string; status: string }> }).items
+  const versionOf = async (id: string) => (await list()).find((m) => m.id === id)!.version
+  let info: MockInstance<typeof console.info>
+
+  beforeEach(() => {
+    resetMockStaff()
+    info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    info.mockRestore()
+    resetMockStaff()
+  })
+
+  describe('reading', () => {
+    it('needs a token, and access.view', async () => {
+      await expectProblem(await send('GET', '/staff', {}), 401)
+      await expectProblem(await send('GET', '/roles', {}), 401)
+      const body = await expectProblem(await send('GET', '/staff', as('u2')), 403) // Support lead has no access control
+      expect(body.detail).toBe('Your role does not include Access control.')
+      await expectProblem(await send('GET', '/roles', as('u3')), 403)
+    })
+
+    it('is open to a read-only role, with no-store caching and the { items } envelope', async () => {
+      for (const path of ['/staff', '/roles']) {
+        const res = await send('GET', path, as('u4'))
+        expect(res.status, path).toBe(200)
+        expect(res.headers.get('Cache-Control')).toBe('no-store')
+        expect(Object.keys(await res.json())).toEqual(['items'])
+      }
+    })
+  })
+
+  describe('writing needs access.manage', () => {
+    it('refuses a read-only role on every write, and changes nothing', async () => {
+      const calls: Array<[string, string, unknown?]> = [
+        ['POST', '/staff', { name: 'Test Person', email: 'test.person@platform.example', role: 'support' }],
+        ['PATCH', '/staff/u2', { role: 'billing', version: 1 }],
+        ['DELETE', '/staff/u2?version=1'],
+        ['POST', '/staff/u5/resend-invite'],
+        ['PUT', '/roles/auditor/permissions', { permissions: [], version: 1 }],
+      ]
+      for (const [method, path, body] of calls) {
+        const res = await send(method, path, as('u4'), body)
+        const problem = await expectProblem(res, 403)
+        expect(problem.detail, path).toBe('Your role cannot change access control.')
+      }
+      expect(await list()).toHaveLength(5)
+      expect((await list()).find((m) => m.id === 'u2')?.role).toBe('support')
+    })
+
+    it('needs a token', async () => {
+      await expectProblem(await send('PATCH', '/staff/u2', {}, { role: 'billing', version: 1 }), 401)
+    })
+  })
+
+  describe('invite', () => {
+    const invite = { name: 'Test Person', email: 'test.person@platform.example', role: 'support' }
+
+    it('answers 201 with the person and a Location, and sends a set-password link instead of a password', async () => {
+      const res = await send('POST', '/staff', as('u1'), invite)
+      expect(res.status).toBe(201)
+      const body = await res.json()
+      expect(body).toMatchObject({ ...invite, status: 'invited', mfaEnrolled: false, version: 1 })
+      expect(JSON.stringify(body)).not.toMatch(/password/i)
+      expect(res.headers.get('Location')).toBe(`${API_BASE}/staff/${body.id}`)
+      const mail = info.mock.calls.map((c) => String(c[0])).find((l) => l.includes(invite.email))!
+      expect(mail).toContain('/reset-password#token=')
+      expect(mail).not.toMatch(/demo-1234/)
+    })
+
+    it('refuses a password in the body', async () => {
+      const body = await expectProblem(await send('POST', '/staff', as('u1'), { ...invite, password: 'demo-1234' }), 400)
+      expect(body.errors).toEqual({ password: ['Unknown field.'] })
+    })
+
+    it('lets the invited person set a password with that link, and then sign in with MFA', async () => {
+      await send('POST', '/staff', as('u1'), invite)
+      const mail = info.mock.calls.map((c) => String(c[0])).find((l) => l.includes(invite.email))!
+      const token = decodeURIComponent(mail.split('#token=')[1])
+      expect((await post('/auth/login', { email: invite.email, password: 'correct horse battery' })).status).toBe(401) // not yet
+      expect((await post('/auth/reset-password', { token, newPassword: 'correct horse battery' })).status).toBe(204)
+      const staffNow = await list()
+      expect(staffNow.find((m) => m.status === 'invited' && m.id !== 'u5')).toBeUndefined()
+      expect(platformAuditLog().map((e) => e.action)).toEqual(['staff.invited', 'staff.activated'])
+    })
+
+    it('resends a new link to an invited person, and 409s for an active one', async () => {
+      expect((await send('POST', '/staff/u5/resend-invite', as('u1'))).status).toBe(204)
+      expect(info.mock.calls.some((c) => String(c[0]).includes('sofia.reyes@platform.example') && String(c[0]).includes('#token='))).toBe(true)
+      await expectProblem(await send('POST', '/staff/u2/resend-invite', as('u1')), 409)
+      await expectProblem(await send('POST', '/staff/nobody/resend-invite', as('u1')), 404)
+    })
+
+    it('is a 409 conflict for a duplicate email, with errors.email', async () => {
+      const body = await expectProblem(await send('POST', '/staff', as('u1'), { ...invite, email: 'liam.carter@platform.example' }), 409)
+      expect(body.errors).toEqual({ email: ['This person already has access.'] })
+    })
+  })
+
+  describe('a change takes effect immediately', () => {
+    const sessionOf = async (userId: string) => cookieOf(await post('/auth/mfa', { challengeId: `mock-challenge.${userId}`, code: DEMO_CODE }))!
+
+    it('a role change ends the person\'s refresh session and the access token they hold', async () => {
+      const cookie = await sessionOf('u3')
+      expect((await send('GET', '/permissions', as('u3'))).status).toBe(200)
+      const res = await send('PATCH', '/staff/u3', as('u1'), { role: 'auditor', version: 1 })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ id: 'u3', role: 'auditor', version: 2 })
+      await expectProblem(await send('GET', '/permissions', as('u3')), 401) // the old stamp
+      await expectProblem(await refresh(cookie), 401) // the refresh token was revoked
+    })
+
+    it('after signing in again the person has the new role and its keys', async () => {
+      await send('PATCH', '/staff/u3', as('u1'), { role: 'auditor', version: 1 })
+      const res = await post('/auth/mfa', { challengeId: 'mock-challenge.u3', code: DEMO_CODE })
+      const session = await res.json()
+      expect(session.user.role).toBe('auditor')
+      const read = await send('GET', '/staff', { Authorization: `Bearer ${session.accessToken}` })
+      expect(read.status).toBe(200) // an auditor can read access control
+      expect((await send('GET', '/tenants', { Authorization: `Bearer ${session.accessToken}` })).status).toBe(200)
+    })
+
+    it('disabling ends the session and blocks sign-in with the same generic failure as a bad password', async () => {
+      const cookie = await sessionOf('u2')
+      expect((await send('PATCH', '/staff/u2', as('u1'), { status: 'deactivated', version: 1 })).status).toBe(200)
+      await expectProblem(await send('GET', '/permissions', as('u2')), 401)
+      await expectProblem(await refresh(cookie), 401)
+      const failed = await expectProblem(await post('/auth/login', { email: 'omar.haddad@platform.example', password: DEMO_PASSWORD }), 401)
+      expect(failed.detail).toBe('Incorrect email or password.')
+      const wrong = await expectProblem(await post('/auth/login', { email: 'omar.haddad@platform.example', password: 'wrong' }), 401)
+      expect({ type: failed.type, title: failed.title, detail: failed.detail }).toEqual({ type: wrong.type, title: wrong.title, detail: wrong.detail })
+    })
+
+    it('removing ends the session and blocks sign-in', async () => {
+      const cookie = await sessionOf('u3')
+      expect((await send('DELETE', `/staff/u3?version=${await versionOf('u3')}`, as('u1'))).status).toBe(204)
+      await expectProblem(await send('GET', '/permissions', as('u3')), 401)
+      await expectProblem(await refresh(cookie), 401)
+      await expectProblem(await post('/auth/login', { email: 'priya.nair@platform.example', password: DEMO_PASSWORD }), 401)
+      expect((await list()).map((m) => m.id)).not.toContain('u3')
+    })
+
+    it('reactivating lets the person sign in again', async () => {
+      await send('PATCH', '/staff/u2', as('u1'), { status: 'deactivated', version: 1 })
+      await send('PATCH', '/staff/u2', as('u1'), { status: 'active', version: 2 })
+      expect((await post('/auth/login', { email: 'omar.haddad@platform.example', password: DEMO_PASSWORD })).status).toBe(200)
+    })
+
+    it('a change to what a role can do applies to the next request, without signing anyone out', async () => {
+      expect((await send('GET', '/plans', as('u4'))).status).toBe(200)
+      const keys = (await (await send('GET', '/roles', as('u1'))).json()).items.find((r: { id: string }) => r.id === 'auditor')
+      const res = await send('PUT', '/roles/auditor/permissions', as('u1'), {
+        permissions: keys.permissions.filter((k: string) => k !== 'plans.view'),
+        version: keys.version,
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ id: 'auditor', version: 2 })
+      const body = await expectProblem(await send('GET', '/plans', as('u4')), 403) // same token, new keys
+      expect(body.detail).toBe('Your role does not include Plans and modules.')
+      expect((await send('GET', '/staff', as('u4'))).status).toBe(200) // and still signed in
+    })
+  })
+
+  describe('the safety rules as problems', () => {
+    it('names the problem type and says why, for a person changing their own access', async () => {
+      const body = await expectProblem(await send('PATCH', '/staff/u1', as('u1'), { role: 'auditor', version: 1 }), 409)
+      expect(body.type).toContain('access/self-lockout')
+      expect(body.detail).toBe('You cannot remove your own access to Access control. Ask another Super admin to do it.')
+      expect((await expectProblem(await send('DELETE', '/staff/u1?version=1', as('u1')), 409)).type).toContain('access/self-lockout')
+    })
+
+    it('names escalation when a manager grants a role they do not hold', async () => {
+      const { permissions } = await import('./db')
+      permissions.support = [...permissions.support, 'access.manage'] // resetMockStaff puts it back
+      const body = await expectProblem(await send('PATCH', '/staff/u4', as('u2'), { role: 'admin', version: 1 }), 409)
+      expect(body.type).toContain('access/escalation')
+      const role = await expectProblem(await send('PUT', '/roles/auditor/permissions', as('u2'), { permissions: ['tenants.manage'], version: 1 }), 409)
+      expect(role.type).toContain('access/escalation')
+      const invite = await expectProblem(await send('POST', '/staff', as('u2'), { name: 'Test Person', email: 'test.person@platform.example', role: 'admin' }), 409)
+      expect(invite.type).toContain('access/escalation')
+    })
+
+    it('says the Super admin role is locked', async () => {
+      const body = await expectProblem(await send('PUT', '/roles/admin/permissions', as('u1'), { permissions: [], version: 1 }), 409)
+      expect(body.type).toContain('access/role-locked')
+    })
+
+    it('puts a stale version under errors.version for a person and for a role', async () => {
+      await send('PATCH', '/staff/u2', as('u1'), { role: 'billing', version: 1 })
+      const person = await expectProblem(await send('PATCH', '/staff/u2', as('u1'), { role: 'auditor', version: 1 }), 409)
+      expect(person.errors?.version).toHaveLength(1)
+      const role = await expectProblem(await send('PUT', '/roles/auditor/permissions', as('u1'), { permissions: [], version: 9 }), 409)
+      expect(role.errors?.version).toHaveLength(1)
+    })
+  })
+
+  it('writes an audit entry for every successful change, and none for a refused one', async () => {
+    await send('PATCH', '/staff/u1', as('u1'), { role: 'auditor', version: 1 }) // refused
+    expect(platformAuditLog()).toEqual([])
+    await send('POST', '/staff', as('u1'), { name: 'Test Person', email: 'test.person@platform.example', role: 'support' })
+    await send('PATCH', '/staff/u2', as('u1'), { role: 'billing', version: 1 })
+    await send('PATCH', '/staff/u2', as('u1'), { status: 'deactivated', version: 2 })
+    await send('DELETE', '/staff/u2?version=3', as('u1'))
+    await send('PUT', '/roles/auditor/permissions', as('u1'), { permissions: ['tenants.view'], version: 1 })
+    expect(platformAuditLog().map((e) => [e.actorName, e.action])).toEqual([
+      ['Dana Whitfield', 'staff.invited'],
+      ['Dana Whitfield', 'staff.role-changed'],
+      ['Dana Whitfield', 'staff.deactivated'],
+      ['Dana Whitfield', 'staff.removed'],
+      ['Dana Whitfield', 'role.permissions-changed'],
+    ])
   })
 })
