@@ -123,7 +123,7 @@ describe('AccessPage: what each role can do', () => {
     open()
     await loaded()
     const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
-    expect(heads).toEqual(expect.arrayContaining(['Super admin1 person', 'Support lead2 people', 'Billing manager1 person', 'Auditor1 person']))
+    expect(heads).toEqual(expect.arrayContaining(['Super admin1 personLocked', 'Support lead2 people', 'Billing manager1 person', 'Auditor1 person']))
     const areas = screen.getAllByRole('rowheader').map((h) => h.textContent)
     expect(areas).toEqual(['Tenants', 'Plans and modules', 'Billing', 'Transactions', 'SMS', 'Support access', 'Access control'])
   })

@@ -5,8 +5,8 @@ import type { Area, Level } from '@/features/auth/api/types'
 import { AREA_LABELS } from '@/features/auth/hooks/permissions'
 import type { RoleInfo } from '../api/types'
 import { levelOfKeys } from '../hooks/permissionDiff'
+import { AREAS, type RoleDraft } from '../hooks/roleDraft'
 
-const AREAS = Object.keys(AREA_LABELS) as Area[]
 const LEVELS: Array<[Level, string]> = [
   ['none', 'No access'],
   ['view', 'View only'],
@@ -20,10 +20,15 @@ const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`
 interface RolesMatrixProps {
   /** Undefined while the roles are loading. */
   roles: RoleInfo[] | undefined
+  /** What the person has picked per role; the saved levels when absent. */
+  drafts?: Record<string, RoleDraft>
+  /** Without access.manage, or while a save runs, every select is off. */
+  readOnly?: boolean
+  onLevel?: (roleId: string, area: Area, level: Level) => void
 }
 
 /** The demo's matrix: areas down the side, roles across the top, what each role can do in each area. */
-export function RolesMatrix({ roles }: RolesMatrixProps) {
+export function RolesMatrix({ roles, drafts, readOnly = true, onLevel }: RolesMatrixProps) {
   return (
     <div className="overflow-x-auto" aria-busy={!roles}>
       <Table className="text-[13.5px]">
@@ -37,6 +42,7 @@ export function RolesMatrix({ roles }: RolesMatrixProps) {
                   <TableHead key={role.id} scope="col" className={COLUMN}>
                     <span className="block text-[14.5px] text-ink">{role.name}</span>
                     <span className="block text-[12.5px] font-normal text-ink-2">{people(role.staffCount)}</span>
+                    {role.locked ? <span className="block text-[12.5px] font-normal text-ink-2">Locked</span> : null}
                   </TableHead>
                 ))
               : [0, 1, 2, 3].map((i) => (
@@ -60,9 +66,10 @@ export function RolesMatrix({ roles }: RolesMatrixProps) {
                         aria-label={`${AREA_LABELS[area]} for ${role.name}`}
                         data-area={area}
                         data-role={role.id}
-                        value={levelOfKeys(role.permissions, area)}
-                        disabled
-                        onChange={() => {}}
+                        value={drafts?.[role.id]?.[area] ?? levelOfKeys(role.permissions, area)}
+                        // The Super admin column is locked for everyone.
+                        disabled={readOnly || role.locked}
+                        onChange={(e) => onLevel?.(role.id, area, e.target.value as Level)}
                         className="mx-auto w-[130px]"
                       >
                         {LEVELS.map(([value, label]) => (

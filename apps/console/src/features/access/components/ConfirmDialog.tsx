@@ -65,16 +65,16 @@ export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps)
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
-            {copy.items.length > 0 ? (
-              <div className="rounded-md border border-line bg-[#f8fafb] px-3 py-2.5">
-                <p className="font-medium">{copy.listTitle}</p>
+            {copy.lists.map((list) => (
+              <div key={list.title} className="rounded-md border border-line bg-[#f8fafb] px-3 py-2.5">
+                <p className="font-medium">{list.title}</p>
                 <ul className="m-0 mt-1 list-disc pl-5">
-                  {copy.items.map((item) => (
+                  {list.items.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
               </div>
-            ) : null}
+            ))}
             {copy.outro.map((text) => (
               <p key={text} className="text-ink-2">
                 {text}

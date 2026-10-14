@@ -11,10 +11,8 @@ export interface ConfirmCopy {
   title: string
   /** Paragraphs before the list. */
   intro: string[]
-  /** Heading of the list, when there is one. */
-  listTitle?: string
-  /** What the person loses, one line each. */
-  items: string[]
+  /** What is lost, one list per person or role: a heading and a line each. */
+  lists: Array<{ title: string; items: string[] }>
   /** Paragraphs after the list. */
   outro: string[]
   confirmLabel: string
@@ -54,8 +52,7 @@ export function confirmCopy(change: PendingChange, roles: RoleInfo[]): ConfirmCo
     return {
       title: `Change ${name} to ${next?.name ?? 'this role'}?`,
       intro,
-      listTitle: lost.length > 0 ? `${name} will lose:` : undefined,
-      items: lost.map((k) => sentence(describePermission(k))),
+      lists: lost.length > 0 ? [{ title: `${name} will lose:`, items: lost.map((k) => sentence(describePermission(k))) }] : [],
       outro: [`${name} is signed out when you confirm, and signs in again with the new role.`],
       confirmLabel: 'Change role',
       destructive: lost.length > 0,
@@ -67,8 +64,7 @@ export function confirmCopy(change: PendingChange, roles: RoleInfo[]): ConfirmCo
     return {
       title: `Deactivate ${name}?`,
       intro: [`${name} can no longer sign in, and is signed out when you confirm.`],
-      listTitle: heldItems.length > 0 ? `${name} will lose, as ${held?.name}:` : undefined,
-      items: heldItems,
+      lists: heldItems.length > 0 ? [{ title: `${name} will lose, as ${held?.name}:`, items: heldItems }] : [],
       outro: ['You can reactivate them later.'],
       confirmLabel: 'Deactivate',
       destructive: true,
@@ -80,8 +76,7 @@ export function confirmCopy(change: PendingChange, roles: RoleInfo[]): ConfirmCo
     intro: invited
       ? [`${name} has not signed in yet. The invitation stops working when you confirm.`]
       : [`${name} loses access to this console for good, and is signed out when you confirm. What they did stays in the audit log.`],
-    listTitle: !invited && heldItems.length > 0 ? `${name} will lose, as ${held?.name}:` : undefined,
-    items: invited ? [] : heldItems,
+    lists: !invited && heldItems.length > 0 ? [{ title: `${name} will lose, as ${held?.name}:`, items: heldItems }] : [],
     outro: ['To give them access again, invite them again.'],
     confirmLabel: 'Remove',
     destructive: true,
@@ -93,7 +88,7 @@ export function inviteConfirmCopy(name: string, role: RoleInfo): ConfirmCopy {
   return {
     title: `Invite ${name} as ${role.name}?`,
     intro: [`${role.name} can change who has access to this console and what every role can do. ${name} will be able to do that too.`],
-    items: [],
+    lists: [],
     outro: [`${name} gets an email with a link to set a password. You never see or set it.`],
     confirmLabel: 'Send invitation',
     destructive: false,

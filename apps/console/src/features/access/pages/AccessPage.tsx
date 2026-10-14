@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, useState } from 'react'
 import { PageHeader } from '@/components/PageHeader'
 import { QueryErrorPanel } from '@/components/QueryErrorPanel'
 import { Button } from '@/components/ui/button'
@@ -7,22 +7,12 @@ import { Can } from '@/features/auth/components/Can'
 import { usePermission } from '@/features/auth/hooks/usePermission'
 import { useSession } from '@/features/auth/hooks/session'
 import { InviteDialog } from '../components/InviteDialog'
+import { Panel } from '../components/Panel'
 import { RolesMatrix } from '../components/RolesMatrix'
+import { RolesSection } from '../components/RolesSection'
 import { SignInSecurity } from '../components/SignInSecurity'
 import { StaffSection } from '../components/StaffSection'
 import { useRoles, useStaff } from '../hooks/useAccessData'
-
-function Panel({ id, title, aside, children }: { id: string; title: string; aside?: ReactNode; children: ReactNode }) {
-  return (
-    <section aria-labelledby={id} className="mb-5 rounded-md border border-line bg-paper">
-      <div className="flex items-center justify-between gap-3 border-b border-line-2 px-[18px] py-3.5">
-        <h2 id={id}>{title}</h2>
-        {aside}
-      </div>
-      {children}
-    </section>
-  )
-}
 
 const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`
 
@@ -64,15 +54,19 @@ export default function AccessPage() {
         )}
       </Panel>
 
-      <Panel id="ac-roles" title="What each role can do">
-        {roles.isError && !roles.data ? (
+      {roles.isError && !roles.data ? (
+        <Panel id="ac-roles" title="What each role can do">
           <div className="p-4">
             <QueryErrorPanel title="Could not load what each role can do." error={roles.error} onRetry={() => void roles.refetch()} />
           </div>
-        ) : (
-          <RolesMatrix roles={roles.data?.items} />
-        )}
-      </Panel>
+        </Panel>
+      ) : roles.data ? (
+        <RolesSection roles={roles.data.items} canManage={canManage} />
+      ) : (
+        <Panel id="ac-roles" title="What each role can do">
+          <RolesMatrix roles={undefined} />
+        </Panel>
+      )}
 
       {roles.data ? (
         <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles.data.items} members={members ?? []} returnFocusTo={inviteButton} />
