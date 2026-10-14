@@ -7,12 +7,12 @@ import {
   USER_LIMIT_RANGE,
   type CreateTenantInput,
   type PlanId,
-  type PlanOption,
   type Provisioning,
   type ProvisioningStep,
   type RegionOption,
   type TenantOptions,
 } from '@/features/tenants/api/types'
+import { planOptions } from './plans'
 import { BASE_DOMAIN, makeTenantRecord, tenantRecords } from './tenants'
 
 /** The release new tenants are migrated to (LATEST in the demo). */
@@ -23,18 +23,13 @@ export const setProvisionStepMs = (ms: number) => {
   stepMs = ms
 }
 
-export const PLAN_OPTIONS: PlanOption[] = [
-  { id: 'essentials', name: 'Essentials', blurb: 'Directory and service history', trialDays: 14 },
-  { id: 'professional', name: 'Professional', blurb: 'Adds workflows, reports, AI', trialDays: 30 },
-  { id: 'enterprise', name: 'Enterprise', blurb: 'Adds integrations and audit', trialDays: 30 },
-]
 export const REGION_OPTIONS: RegionOption[] = [
   { id: 'us-east', name: 'US East' },
   { id: 'us-west', name: 'US West' },
   { id: 'eu-frankfurt', name: 'EU Frankfurt' },
 ]
 
-export const tenantOptions = (): TenantOptions => ({ plans: PLAN_OPTIONS, regions: REGION_OPTIONS, baseDomain: BASE_DOMAIN })
+export const tenantOptions = (): TenantOptions => ({ plans: planOptions(), regions: REGION_OPTIONS, baseDomain: BASE_DOMAIN })
 
 const FIELDS = ['name', 'domain', 'planId', 'userLimit', 'region', 'adminEmail'] as const
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
@@ -77,7 +72,7 @@ export function createTenant(body: unknown): CreateResult {
   const domain = typeof raw.domain === 'string' ? raw.domain : ''
   if (!DOMAIN_PATTERN.test(domain)) errors.domain = ['Use 3 to 30 lowercase letters, numbers, or hyphens.']
 
-  const plan = PLAN_OPTIONS.find((p) => p.id === raw.planId)
+  const plan = planOptions().find((p) => p.id === raw.planId)
   if (!plan) errors.planId = ['Choose a plan.']
 
   const limit = raw.userLimit
@@ -132,7 +127,7 @@ export function provisioningOf(id: string, now = Date.now()): Provisioning | und
   const done = Math.min(labels.length, Math.floor((now - job.startedAt) / stepMs))
   const steps = labels.map<ProvisioningStep>((s, i) => ({ ...s, state: i < done ? 'done' : i === done ? 'running' : 'waiting' }))
   if (done < labels.length) return { id, status: 'running', steps }
-  const plan = PLAN_OPTIONS.find((p) => p.id === job.input.planId)!
+  const plan = planOptions().find((p) => p.id === job.input.planId)!
   return {
     id,
     status: 'succeeded',
