@@ -26,6 +26,10 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
+  // The reset link carries its token in the URL fragment; no-referrer keeps it, and the page URL,
+  // out of Referer headers. Production hosting must send the same header (docs/ARCHITECTURE.md).
+  server: { headers: { 'Referrer-Policy': 'no-referrer' } },
+  preview: { headers: { 'Referrer-Policy': 'no-referrer' } },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],

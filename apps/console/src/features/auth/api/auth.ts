@@ -24,6 +24,11 @@ export function requestPasswordReset(email: string) {
   return api<void>('/auth/forgot-password', { body: { email }, anonymous: true })
 }
 
+/** Sets a new password with the single-use token from the reset link. Responds 204; never signs the user in. */
+export function resetPassword(token: string, newPassword: string) {
+  return api<void>('/auth/reset-password', { body: { token, newPassword }, anonymous: true })
+}
+
 export function startSession(session: SessionResponse) {
   sessionStore.setSession(session)
 }

@@ -40,6 +40,44 @@ function hasCsrfHeader(request: Request) {
   return request.headers.get(CSRF_HEADER.name) === CSRF_HEADER.value
 }
 
+// Password reset tokens (docs/ARCHITECTURE.md, Password reset): random, single-use, 30 minutes,
+// and a new request invalidates earlier ones. A token is "mock-reset.<userId>.<issuedAtMs>.<nonce>" so
+// a link stays valid after a page reload; the used and superseded lists are in memory and reset
+// on reload, which only makes the mock more permissive.
+const RESET_PREFIX = 'mock-reset.'
+const RESET_TTL_MS = 30 * 60 * 1000
+const latestResetIssuedAt = new Map<string, number>()
+const usedResetTokens = new Set<string>()
+const BREACHED_PASSWORDS = new Set(['password1234', 'qwertyuiop12', '123456789012', 'letmein123456'])
+
+function issueResetToken(user: SeedStaff) {
+  const issuedAt = Date.now()
+  latestResetIssuedAt.set(user.id, issuedAt)
+  return `${RESET_PREFIX}${user.id}.${issuedAt}.${crypto.randomUUID()}`
+}
+
+/** The user a reset token belongs to, or undefined when it is unknown, expired, used or superseded. */
+function userForResetToken(token: unknown): SeedStaff | undefined {
+  if (typeof token !== 'string' || usedResetTokens.has(token)) return undefined
+  const match = /^mock-reset\.([^.]+)\.(\d+)\.[\w-]+$/.exec(token)
+  if (!match) return undefined
+  const issuedAt = Number(match[2])
+  if (Date.now() - issuedAt > RESET_TTL_MS) return undefined
+  if (issuedAt < (latestResetIssuedAt.get(match[1]) ?? 0)) return undefined
+  return findActive(match[1])
+}
+
+const invalidResetLink = () =>
+  problem(400, 'auth/invalid-reset-link', 'Invalid reset link', { detail: 'This reset link is invalid or has expired.' })
+
+function weakPasswordReason(password: unknown, user: SeedStaff): string | undefined {
+  if (typeof password !== 'string' || !password) return 'Enter a new password.'
+  if (password.length < 12) return 'Use at least 12 characters.'
+  if (password.toLowerCase() === user.email.toLowerCase()) return 'Do not use your email address as your password.'
+  if (BREACHED_PASSWORDS.has(password.toLowerCase())) return 'This password has appeared in a data breach. Choose another.'
+  return undefined
+}
+
 const csrfRejected = () =>
   problem(403, 'auth/csrf', 'Forbidden', { detail: `Missing or invalid ${CSRF_HEADER.name} header.` })
 
@@ -77,6 +115,29 @@ export const handlers = [
         errors: { email: ['Enter a valid email address.'] },
       })
     }
+    // The real server sends the email from a job; the mock prints the link where the email would be.
+    const user = staff.find((u) => u.email.toLowerCase() === email.trim().toLowerCase())
+    if (user?.status === 'active') {
+      console.info(`[mock email] Password reset for ${user.email}: ${location.origin}/reset-password#token=${issueResetToken(user)}`)
+    }
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.post(`${API_BASE}/auth/reset-password`, async ({ request }) => {
+    await delay(150)
+    const { token, newPassword } = (await request.json()) as { token?: unknown; newPassword?: unknown }
+    // Token first, so a bad link never reveals anything about the password or the account.
+    const user = userForResetToken(token)
+    if (!user) return invalidResetLink()
+    const reason = weakPasswordReason(newPassword, user)
+    if (reason) {
+      return problem(400, 'validation', 'One or more validation errors occurred.', { errors: { newPassword: [reason] } })
+    }
+    usedResetTokens.add(token as string)
+    // All refresh tokens for the user end; the user is not signed in and must pass MFA again.
+    const family = families.get(user.id)
+    if (family) family.revoked = true
+    console.info(`[mock email] Your password was changed: ${user.email}`)
     return new HttpResponse(null, { status: 204 })
   }),
 
