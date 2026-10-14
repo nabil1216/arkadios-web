@@ -214,6 +214,20 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   The backend may upgrade this to a double-submit token later; the UI change would be one header.
 - A reused or invalid refresh token ends the session and the client returns to login.
 
+**Password reset (platform API; the tenant API follows the same shape)**
+- `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists
+  (no account enumeration). Strict rate limit per IP and per email; `429` with `Retry-After`. The email is sent by a job (outbox), not inline.
+- Reset link: `https://<console-host>/reset-password#token=<token>`. The token sits in the URL fragment, not the query string,
+  so it is never sent to servers, logs or referrers. The page reads it, removes it from the address bar with `history.replaceState`,
+  and keeps it in memory only. The page sends `Referrer-Policy: no-referrer`.
+- `POST /auth/reset-password` with `{ token, newPassword }`. `204` on success. Invalid, expired or already-used token returns one generic
+  `400` problem ("This reset link is invalid or has expired."). Weak password returns `400` with `errors.newPassword`.
+- Token: random, single-use, stored hashed, expires in 30 minutes, and a new request invalidates earlier tokens.
+- On success: revoke all refresh tokens for that user, write a security audit entry, send a "your password was changed" email.
+  Do not sign the user in. They sign in again and still pass MFA.
+- Password rule: minimum 12 characters, not in a known-breached list, not equal to the email. No composition rules.
+- An invited (not yet active) account uses the same flow as "set your password", with a longer expiry decided in the backend.
+
 ## 11. Frontend (arkadios-web)
 
 - pnpm workspace: `apps/console` first, `apps/workspace` later, shared packages extracted only when the second app starts.
