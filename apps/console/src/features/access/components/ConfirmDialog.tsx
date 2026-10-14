@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { useReopenKey } from '@/lib/useReopenKey'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import type { ConfirmCopy } from '../hooks/confirmCopy'
 
@@ -26,7 +27,11 @@ interface ConfirmDialogProps {
  */
 export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps) {
   const guard = useSubmitGuard()
+  const reopenKey = useReopenKey(copy !== null)
   const [error, setError] = useState<string | null>(null)
+  // The words stay on screen while the dialog fades out, instead of the box going blank first.
+  const [shown, setShown] = useState(copy)
+  if (copy && copy !== shown) setShown(copy)
 
   function cancel() {
     setError(null)
@@ -46,6 +51,7 @@ export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps)
 
   return (
     <AlertDialog
+      key={reopenKey}
       open={copy !== null}
       onOpenChange={(open) => {
         // Not while the request runs: closing would hide whether it went through.
@@ -53,19 +59,19 @@ export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps)
       }}
     >
       <AlertDialogContent>
-        {copy ? (
+        {shown ? (
           <>
             <AlertDialogHeader>
-              <AlertDialogTitle className="font-display text-[22px] font-medium">{copy.title}</AlertDialogTitle>
+              <AlertDialogTitle className="font-display text-[22px] font-medium">{shown.title}</AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="grid gap-2">
-                  {copy.intro.map((text) => (
+                  {shown.intro.map((text) => (
                     <p key={text}>{text}</p>
                   ))}
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
-            {copy.lists.map((list) => (
+            {shown.lists.map((list) => (
               <div key={list.title} className="rounded-md border border-line bg-[#f8fafb] px-3 py-2.5">
                 <p className="font-medium">{list.title}</p>
                 <ul className="m-0 mt-1 list-disc pl-5">
@@ -75,7 +81,7 @@ export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps)
                 </ul>
               </div>
             ))}
-            {copy.outro.map((text) => (
+            {shown.outro.map((text) => (
               <p key={text} className="text-ink-2">
                 {text}
               </p>
@@ -90,11 +96,11 @@ export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps)
                 Cancel
               </AlertDialogCancel>
               <Button
-                variant={copy.destructive ? 'destructive' : 'default'}
+                variant={shown.destructive ? 'destructive' : 'default'}
                 disabled={guard.pending}
                 onClick={confirm}
               >
-                {copy.confirmLabel}
+                {shown.confirmLabel}
               </Button>
             </AlertDialogFooter>
           </>

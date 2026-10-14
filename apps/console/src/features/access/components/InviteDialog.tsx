@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import type { Role } from '@/features/auth/api/types'
 import { ApiError } from '@/lib/api'
+import { useReopenKey } from '@/lib/useReopenKey'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { accessKey, inviteStaff } from '../api/access'
 import { accessErrorText } from '../api/problems'
@@ -53,6 +54,7 @@ export function InviteDialog({ open, onOpenChange, roles, members, returnFocusTo
   const [formError, setFormError] = useState<string | null>(null)
   /** Values waiting for the answer to "give this person access.manage?". */
   const [confirming, setConfirming] = useState<Values | null>(null)
+  const reopenKey = useReopenKey(open && !confirming)
 
   const { register, handleSubmit, setError, setFocus, reset, formState: { errors } } = useForm<Values>({
     resolver: zodResolver(schema),
@@ -110,6 +112,7 @@ export function InviteDialog({ open, onOpenChange, roles, members, returnFocusTo
   return (
     <>
       <Dialog
+        key={reopenKey}
         open={open && !confirming}
         onOpenChange={(next) => {
           if (!next && !guard.pending) close()
