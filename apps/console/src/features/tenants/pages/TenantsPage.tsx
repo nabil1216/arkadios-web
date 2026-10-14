@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Can } from '@/features/auth/components/Can'
@@ -19,6 +19,7 @@ export default function TenantsPage() {
   const { data, isError, error, isPlaceholderData, refetch } = query
   const filtered = state.q !== '' || state.status !== 'all'
   const [createOpen, setCreateOpen] = useState(false)
+  const createButton = useRef<HTMLButtonElement>(null)
 
   return (
     <>
@@ -27,7 +28,7 @@ export default function TenantsPage() {
         description="Each tenant has its own domain, database, plan, and user limit."
         actions={
           <Can permission="tenants.manage">
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button ref={createButton} onClick={() => setCreateOpen(true)}>
               <Plus size={18} strokeWidth={1.7} aria-hidden="true" /> Create tenant
             </Button>
           </Can>
@@ -38,7 +39,7 @@ export default function TenantsPage() {
       </p>
 
       <Can permission="tenants.manage">
-        <CreateTenantDrawer open={createOpen} onOpenChange={setCreateOpen} />
+        <CreateTenantDrawer open={createOpen} onOpenChange={setCreateOpen} returnFocusTo={createButton} />
       </Can>
 
       <TenantsToolbar

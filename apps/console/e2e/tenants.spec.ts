@@ -247,11 +247,12 @@ test.describe('buttons by role', () => {
     await button.click({ force: true }) // Playwright will not click aria-disabled controls otherwise
   }
 
-  test('super admin sees Manage, Sign in as and Create tenant, all marked as coming later', async ({ page }) => {
+  test('super admin sees Manage, Sign in as and an enabled Create tenant; the row buttons are marked as coming later', async ({ page }) => {
     await openTenants(page, accounts.admin)
     await expect(rows(page)).toHaveCount(6)
     const create = page.getByRole('button', { name: /Create tenant/ })
     await expect(create).toBeVisible()
+    await expect(create).not.toHaveAttribute('aria-disabled')
     await expect(page.getByRole('button', { name: /^Manage / })).toHaveCount(6)
     await expect(page.getByRole('button', { name: /^Sign in as a user of / })).toHaveCount(6)
     await expect(page.getByRole('button', { name: 'Manage Northwind Advisory Group' })).toBeVisible()
@@ -259,7 +260,6 @@ test.describe('buttons by role', () => {
     await expect(page.getByRole('button', { name: /^View / })).toHaveCount(0)
 
     for (const button of [
-      create,
       page.getByRole('button', { name: 'Manage Cobalt Ridge Wealth' }),
       page.getByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' }),
     ]) {
@@ -267,6 +267,9 @@ test.describe('buttons by role', () => {
     }
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page).toHaveURL(/\/tenants$/)
+
+    await create.click() // Create tenant works: it opens the drawer
+    await expect(page.getByRole('dialog', { name: 'Create tenant' })).toBeVisible()
   })
 
   test('the row buttons sit at the right end of each row, next to each other', async ({ page }) => {

@@ -385,6 +385,17 @@ describe('TenantsPage create tenant', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
+  it('returns focus to the Create tenant button when the drawer closes', async () => {
+    const user = userEvent.setup()
+    open('', 'admin')
+    const create = await screen.findByRole('button', { name: /Create tenant/ })
+    await user.click(create)
+    await screen.findByRole('dialog')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(create).toHaveFocus()
+  })
+
   it('shows the new tenant in the list, as a one-user trial, without a reload', async () => {
     // Slow enough that the refresh right after the 202 cannot see the tenant: only the refresh at the end can.
     setProvisionStepMs(120)

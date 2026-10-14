@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, type RefObject } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,10 +10,12 @@ import { ProvisioningView } from './ProvisioningView'
 interface CreateTenantDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** The drawer is opened from state, not from a trigger, so it needs to be told where focus goes back to. */
+  returnFocusTo?: RefObject<HTMLElement | null>
 }
 
 /** Create tenant: the form, then the provisioning steps, then the ready note (the demo's drawer). */
-export function CreateTenantDrawer({ open, onOpenChange }: CreateTenantDrawerProps) {
+export function CreateTenantDrawer({ open, onOpenChange, returnFocusTo }: CreateTenantDrawerProps) {
   const queryClient = useQueryClient()
   const [provisioningId, setProvisioningId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -39,6 +41,11 @@ export function CreateTenantDrawer({ open, onOpenChange }: CreateTenantDrawerPro
         showCloseButton={!busy}
         className="w-[min(500px,100vw)] gap-0 overflow-y-auto bg-paper sm:max-w-none"
         aria-busy={busy}
+        onCloseAutoFocus={(event) => {
+          if (!returnFocusTo?.current) return
+          event.preventDefault()
+          returnFocusTo.current.focus()
+        }}
       >
         <SheetHeader className="px-5 pt-[18px] pb-3">
           <SheetTitle className="font-display text-[22px] font-medium">Create tenant</SheetTitle>
