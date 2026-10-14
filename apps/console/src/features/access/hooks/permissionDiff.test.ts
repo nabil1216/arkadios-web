@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PermissionKey } from '@/features/auth/api/types'
-import { describePermission, describePermissions, gainedPermissions, holdsManage, lostPermissions } from './permissionDiff'
+import { describePermission, levelOfKeys, describePermissions, gainedPermissions, holdsManage, lostPermissions } from './permissionDiff'
 
 const billing: PermissionKey[] = ['tenants.view', 'plans.view', 'billing.manage', 'transactions.manage']
 const auditor: PermissionKey[] = ['tenants.view', 'plans.view', 'billing.view', 'transactions.view', 'support.view', 'access.view']
@@ -34,6 +34,15 @@ describe('gainedPermissions', () => {
   it('is what the new keys add', () => {
     expect(gainedPermissions(['tenants.view'], ['tenants.manage'])).toEqual(['tenants.manage'])
     expect(gainedPermissions(auditor, ['tenants.view'])).toEqual([])
+  })
+})
+
+describe('levelOfKeys', () => {
+  it('reads the level of an area from the keys', () => {
+    expect(levelOfKeys(billing, 'billing')).toBe('manage')
+    expect(levelOfKeys(billing, 'tenants')).toBe('view')
+    expect(levelOfKeys(billing, 'sms')).toBe('none')
+    expect(levelOfKeys(['sms.manage'], 'sms')).toBe('manage')
   })
 })
 

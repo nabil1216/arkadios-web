@@ -11,6 +11,10 @@ describe('StatusBadge', () => {
     ['overdue', 'Overdue', 'text-red'],
     ['ok', 'Up to date', 'text-green'],
     ['live', 'In progress', 'text-teal-ink'],
+    ['invited', 'Invited', 'text-blue'],
+    ['deactivated', 'Deactivated', 'text-ink-2'],
+    ['mfaOn', 'MFA on', 'text-green'],
+    ['mfaNotSet', 'MFA not set', 'text-amber'],
   ])('%s shows the word "%s" so colour is never the only signal', (kind, label, tone) => {
     render(<StatusBadge kind={kind} />)
     const badge = screen.getByText(label)

@@ -17,6 +17,10 @@ const KINDS = {
   ended: { label: 'Ended', tone: 'gray' },
   refunded: { label: 'Refunded', tone: 'gray' },
   live: { label: 'In progress', tone: 'teal' },
+  invited: { label: 'Invited', tone: 'blue' },
+  deactivated: { label: 'Deactivated', tone: 'gray' },
+  mfaOn: { label: 'MFA on', tone: 'green' },
+  mfaNotSet: { label: 'MFA not set', tone: 'amber' },
 } as const
 
 export type StatusKind = keyof typeof KINDS

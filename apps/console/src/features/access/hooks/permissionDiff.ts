@@ -1,4 +1,4 @@
-import type { Area, PermissionKey } from '@/features/auth/api/types'
+import type { Area, Level, PermissionKey } from '@/features/auth/api/types'
 import { AREA_LABELS } from '@/features/auth/hooks/permissions'
 
 /** Every key a list stands for: `<area>.manage` also means `<area>.view`. */
@@ -17,6 +17,13 @@ export function lostPermissions(from: readonly PermissionKey[], to: readonly Per
 
 /** What `to` has that `from` lacks. */
 export const gainedPermissions = (from: readonly PermissionKey[], to: readonly PermissionKey[]) => lostPermissions(to, from)
+
+/** What a list of keys allows in one area. */
+export function levelOfKeys(keys: readonly PermissionKey[], area: Area): Level {
+  const all = expand(keys)
+  if (all.has(`${area}.manage`)) return 'manage'
+  return all.has(`${area}.view`) ? 'view' : 'none'
+}
 
 export const holdsManage = (keys: readonly PermissionKey[]) => expand(keys).has('access.manage')
 

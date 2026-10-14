@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { afterEach, describe, expect, it } from 'vitest'
-import { formatDate, formatDay, formatMonth, formatMonthLong } from './format'
+import { formatAgo, formatDate, formatDay, formatMonth, formatMonthLong } from './format'
 
 const ORIGINAL_TZ = process.env.TZ
 afterEach(() => {
@@ -54,5 +54,19 @@ describe('formatMonthLong', () => {
     ['2027-01', 'January 2027'],
   ])('%s is %s', (month, text) => {
     expect(formatMonthLong(month)).toBe(text)
+  })
+})
+
+describe('formatAgo', () => {
+  const now = Date.parse('2026-10-14T12:00:00.000Z')
+  const before = (ms: number) => new Date(now - ms).toISOString()
+  it.each([
+    [0, 'this minute'],
+    [12 * 60_000, '12 minutes ago'],
+    [2 * 3_600_000, '2 hours ago'],
+    [24 * 3_600_000, 'yesterday'],
+    [6 * 86_400_000, '6 days ago'],
+  ])('%i ms ago reads "%s"', (ms, text) => {
+    expect(formatAgo(before(ms), now)).toBe(text)
   })
 })
