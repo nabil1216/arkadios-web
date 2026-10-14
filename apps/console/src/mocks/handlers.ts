@@ -3,6 +3,7 @@ import type { SessionResponse } from '@/features/auth/api/types'
 import { API_BASE, CSRF_HEADER } from '@/lib/api'
 import { hasPermission } from '@/features/auth/hooks/permissions'
 import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
+import { listPlans, updatePlan } from './plans'
 import { createTenant, provisioningOf, settleProvisioning, tenantOptions } from './tenantCreate'
 import { queryTenants } from './tenants'
 import { ACCESS_TOKEN_SECONDS, DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
@@ -15,6 +16,11 @@ const CHALLENGE_PREFIX = 'mock-challenge.'
 const tenantsForbidden = (change = false) =>
   problem(403, 'auth/forbidden', 'Forbidden', {
     detail: change ? 'Your role cannot change Tenants.' : 'Your role does not include Tenants.',
+  })
+
+const plansForbidden = (change = false) =>
+  problem(403, 'auth/forbidden', 'Forbidden', {
+    detail: change ? 'Your role cannot change plans.' : 'Your role does not include Plans and modules.',
   })
 
 function findActive(id: string): SeedStaff | undefined {
@@ -232,6 +238,28 @@ export const handlers = [
     settleProvisioning()
     const job = provisioningOf(String(params.id))
     return job ? HttpResponse.json(job, { headers: { 'Cache-Control': 'no-store' } }) : problem(404, 'not-found', 'Not found', { detail: 'No such tenant.' })
+  }),
+
+  http.get(`${API_BASE}/plans`, async ({ request }) => {
+    await delay(150)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'plans.view')) return plansForbidden()
+    settleProvisioning() // tenant counts include tenants whose setup just finished
+    return HttpResponse.json(listPlans(), { headers: { 'Cache-Control': 'no-store' } })
+  }),
+
+  http.put(`${API_BASE}/plans/:id`, async ({ request, params }) => {
+    await delay(200)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'plans.manage')) return plansForbidden(true)
+    const result = updatePlan(String(params.id), await request.json().catch(() => null))
+    if (result.ok) return HttpResponse.json(result.plan, { headers: { 'Cache-Control': 'no-store' } })
+    if (result.status === 404) return problem(404, 'not-found', 'Not found', { detail: 'No such plan.' })
+    return result.status === 409
+      ? problem(409, 'conflict', 'Conflict', { detail: 'This plan was changed by someone else.', errors: result.errors })
+      : problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
   }),
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {

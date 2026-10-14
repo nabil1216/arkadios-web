@@ -262,6 +262,30 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
 - Backend notes: provisioning runs as a background job (see section 3, Provisioning); the first `POST` reserves the domain; connection
   strings never appear in any of these responses.
 
+**Plans and modules (platform API)**
+- `GET /plans` returns `{ modules, plans }`. Needs `plans.view`. It is a small fixed set, so it has no list envelope and no paging.
+  `Cache-Control: no-store`.
+  - `modules` is the catalog, `[{ id, name, note, comingLater }]`. A module with `comingLater: true` cannot be switched on yet.
+  - A plan is `{ id, name, blurb, tenantCount, trialDays, modules, version }`. `modules` has every catalog id as `true` or `false`.
+    `tenantCount` counts every tenant on the plan, whatever its status. `trialDays` is the days before the first bill.
+- `PUT /plans/{id}` with `{ modules, trialDays, version }`. Needs `plans.manage` (`403` without it, `404` for an unknown id).
+  It replaces the plan's modules and trial length and returns the updated plan, with `version` one higher.
+  - `modules` must name every catalog id as `true` or `false`; no other keys. A "coming later" module may only be `false`.
+  - `trialDays` is a whole number from 0 to 90. `version` is the number from the `GET` the edit started from.
+  - Unknown fields are refused. Invalid input returns `400` with `errors` keyed `modules` (not an object), `modules.<id>`
+    (unknown, missing, not a boolean, or "coming later" switched on), `trialDays` and `version`, every bad field in one response.
+  - A stale `version` returns `409` with `errors.version` ("This plan was changed by someone else. Reload to see the latest.")
+    and applies nothing. The `400` checks run before the `409` check. The client reloads the plan and the person starts again.
+- The server does not ask for confirmation. The console asks before it saves a change that switches a module off on a plan whose
+  `tenantCount` is above 0, and names the modules and the tenant count. Switching a module on needs no confirmation.
+- Backend notes:
+  - Turning a module off hides it and makes it read-only for the tenants on that plan. It never deletes tenant data, and switching
+    the module back on restores access to what was there.
+  - A plan or module change evicts the cached tenant config for every tenant on the plan (see section 7, Caching), so tenants see
+    the change on their next request.
+  - Each change writes a `PlatformAuditLog` entry: who, which plan, and what changed (modules switched on or off, trial length).
+  - Only `plans.manage` can write. Reads and writes never touch tenant databases.
+
 **Password reset (platform API; the tenant API follows the same shape)**
 - `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists
   (no account enumeration). Strict rate limit per IP and per email; `429` with `Retry-After`. The email is sent by a job (outbox), not inline.

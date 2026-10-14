@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, t
 import { API_BASE } from '@/lib/api'
 import { DEMO_CODE, DEMO_PASSWORD, permissions, staff } from './db'
 import { handlers } from './handlers'
+import { resetMockPlans } from './plans'
 import { resetMockTenants, setProvisionStepMs } from './tenantCreate'
 
 const server = setupServer(...handlers)
@@ -467,5 +468,113 @@ describe('creating a tenant', () => {
     await expectProblem(await getJson(`/tenants/${id}/provisioning`, {}), 401)
     await expectProblem(await getJson(`/tenants/${id}/provisioning`, as('u2')), 403)
     await expectProblem(await getJson('/tenants/00000000-0000-4000-8000-000000000000/provisioning'), 404)
+  })
+})
+
+describe('plans', () => {
+  const as = (userId: string) => ({ Authorization: `Bearer mock-access.${userId}` })
+  const getPlans = (headers: Record<string, string> = as('u1')) => fetch(url('/plans'), { headers })
+  const put = (id: string, body: unknown, headers: Record<string, string> = as('u1')) =>
+    fetch(url(`/plans/${id}`), { method: 'PUT', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) })
+  const current = async (id = 'professional') => ((await (await getPlans()).json()).plans as Array<Record<string, unknown>>).find((p) => p.id === id)!
+
+  beforeEach(() => resetMockPlans())
+  afterEach(() => resetMockPlans())
+
+  it('lists plans and modules for every role that can view plans, with no-store caching', async () => {
+    for (const id of ['u1', 'u2', 'u3', 'u4']) expect((await getPlans(as(id))).status, id).toBe(200)
+    const res = await getPlans()
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const body = await res.json()
+    expect(body.modules).toHaveLength(11)
+    expect(body.plans.map((p: { id: string }) => p.id)).toEqual(['essentials', 'professional', 'enterprise'])
+    expect(body.plans[0]).toEqual({
+      id: 'essentials',
+      name: 'Essentials',
+      blurb: 'Directory and service history',
+      tenantCount: 1,
+      trialDays: 14,
+      modules: expect.objectContaining({ directory: true, lifetime: true, reports: false }),
+      version: 1,
+    })
+  })
+
+  it('needs a token and plans.view', async () => {
+    await expectProblem(await getPlans({}), 401)
+    const { permissions } = await import('./db')
+    const original = permissions.support
+    permissions.support = original.filter((k) => !k.startsWith('plans.'))
+    try {
+      const body = await expectProblem(await getPlans(as('u2')), 403)
+      expect(body.detail).toBe('Your role does not include Plans and modules.')
+    } finally {
+      permissions.support = original
+    }
+  })
+
+  it('saves a plan for a role with plans.manage and returns it', async () => {
+    const before = await current()
+    const res = await put('professional', { modules: { ...(before.modules as object), integrations: true }, trialDays: 21, version: before.version })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    expect(await res.json()).toMatchObject({ id: 'professional', trialDays: 21, version: 2, modules: expect.objectContaining({ integrations: true }) })
+    expect(await current()).toMatchObject({ trialDays: 21, version: 2 })
+  })
+
+  it('refuses a save from a role that can only view', async () => {
+    const before = await current()
+    const body = { modules: before.modules, trialDays: 21, version: before.version }
+    await expectProblem(await put('professional', body, {}), 401)
+    for (const id of ['u2', 'u3', 'u4']) {
+      expect((await expectProblem(await put('professional', body, as(id)), 403)).detail, id).toBe('Your role cannot change plans.')
+    }
+    expect(await current()).toMatchObject({ trialDays: 30, version: 1 })
+  })
+
+  it('answers 404 for an unknown plan', async () => {
+    const before = await current()
+    await expectProblem(await put('gold', { modules: before.modules, trialDays: 5, version: 1 }), 404)
+  })
+
+  it('answers 400 with an error per bad field', async () => {
+    const before = await current()
+    const body = await expectProblem(await put('professional', { modules: { ...(before.modules as object), ticketing: true }, trialDays: 500, version: before.version }), 400)
+    expect(Object.keys(body.errors!).sort()).toEqual(['modules.ticketing', 'trialDays'])
+  })
+
+  it('answers 400 for a body that is not JSON', async () => {
+    const res = await fetch(url('/plans/professional'), { method: 'PUT', headers: { ...as('u1'), 'Content-Type': 'application/json' }, body: 'not json' })
+    await expectProblem(res, 400)
+  })
+
+  it('answers 409 for a stale version, and applies nothing', async () => {
+    const before = await current()
+    const body = { modules: before.modules, trialDays: 21, version: before.version }
+    expect((await put('professional', body)).status).toBe(200)
+    const stale = await expectProblem(await put('professional', { ...body, trialDays: 77 }), 409)
+    expect(stale.errors).toEqual({ version: ['This plan was changed by someone else. Reload to see the latest.'] })
+    expect(await current()).toMatchObject({ trialDays: 21, version: 2 })
+  })
+
+  it('counts a tenant that has just been created, without a reload', async () => {
+    setProvisionStepMs(20)
+    try {
+      const create = await post('/tenants', {
+        name: 'Harbor Lane Advisors', domain: 'harbor-lane-advisors', planId: 'essentials', userLimit: 5, region: 'us-east', adminEmail: 'it@harborlane.example',
+      }, as('u1'))
+      expect(create.status).toBe(202)
+      await new Promise((r) => setTimeout(r, 150))
+      expect((await current('essentials')).tenantCount).toBe(2)
+    } finally {
+      resetMockTenants()
+      setProvisionStepMs(850)
+    }
+  })
+
+  it('shows the saved trial length in the create form options', async () => {
+    const before = await current('essentials')
+    await put('essentials', { modules: before.modules, trialDays: 21, version: before.version })
+    const options = await (await fetch(url('/tenants/options'), { headers: as('u1') })).json()
+    expect(options.plans.find((p: { id: string }) => p.id === 'essentials').trialDays).toBe(21)
   })
 })
