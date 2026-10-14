@@ -1,5 +1,5 @@
 import { setupServer } from 'msw/node'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { API_BASE } from '@/lib/api'
 import { DEMO_CODE, DEMO_PASSWORD, staff } from './db'
 import { handlers } from './handlers'
@@ -172,5 +172,137 @@ describe('POST /auth/forgot-password', () => {
     const body = await expectProblem(await post('/auth/forgot-password', { email: 'nope' }), 400)
     expect(body.errors).toEqual({ email: ['Enter a valid email address.'] })
     await expectProblem(await post('/auth/forgot-password', {}), 400)
+  })
+})
+
+describe('password reset', () => {
+  const GOOD = 'correct horse battery'
+  const admin = staff[0]
+  const reset = (token: unknown, newPassword: unknown = GOOD) => post('/auth/reset-password', { token, newPassword })
+  let info: MockInstance<typeof console.info>
+
+  beforeEach(() => {
+    info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  })
+  afterEach(() => info.mockRestore())
+
+  /** The "email": the mock prints the reset link. */
+  async function requestToken(email = admin.email) {
+    await post('/auth/forgot-password', { email })
+    const line = info.mock.calls.map((c) => String(c[0])).findLast((l) => l.includes(email) && l.includes('#token='))
+    return line ? decodeURIComponent(line.split('#token=')[1]) : undefined
+  }
+
+  it('emails a link with the token in the fragment, for active accounts only', async () => {
+    const token = await requestToken()
+    expect(token).toMatch(/^mock-reset\./)
+    expect(info.mock.calls.flat().join(' ')).toContain('/reset-password#token=')
+    info.mockClear()
+    const invited = staff.find((u) => u.status === 'invited')!
+    expect(await requestToken(invited.email)).toBeUndefined()
+    expect(await requestToken('nobody@platform.example')).toBeUndefined()
+  })
+
+  it('answers 204 with no body and does not sign the user in', async () => {
+    const token = await requestToken()
+    const res = await reset(token)
+    expect(res.status).toBe(204)
+    expect(await res.text()).toBe('')
+    expect(res.headers.get('Set-Cookie')).toBeNull()
+  })
+
+  it('accepts a token once', async () => {
+    const token = await requestToken()
+    expect((await reset(token)).status).toBe(204)
+    const again = await expectProblem(await reset(token), 400)
+    expect(again.detail).toBe('This reset link is invalid or has expired.')
+  })
+
+  it('returns one generic problem for unknown, malformed, used and missing tokens', async () => {
+    const used = await requestToken()
+    await reset(used)
+    const bodies = []
+    for (const token of ['mock-reset.u1.1.nonsense-but-expired', 'garbage', used, undefined, 42, '']) {
+      const { type, title, detail, errors } = await expectProblem(await reset(token), 400)
+      bodies.push({ type, title, detail, errors })
+    }
+    for (const b of bodies) expect(b).toEqual(bodies[0])
+    expect(bodies[0].errors).toBeUndefined()
+  })
+
+  it('rejects a token after 30 minutes', async () => {
+    const token = await requestToken()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 31 * 60 * 1000)
+      await expectProblem(await reset(token), 400)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('accepts a token just inside 30 minutes', async () => {
+    const token = await requestToken()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 29 * 60 * 1000)
+      expect((await reset(token)).status).toBe(204)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a new request invalidates earlier tokens', async () => {
+    const first = await requestToken()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 1000)
+      const second = await requestToken()
+      await expectProblem(await reset(first), 400)
+      expect((await reset(second)).status).toBe(204)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns errors.newPassword for a short password, and keeps the token usable', async () => {
+    const token = await requestToken()
+    const body = await expectProblem(await reset(token, 'short'), 400)
+    expect(body.errors).toEqual({ newPassword: ['Use at least 12 characters.'] })
+    expect((await reset(token)).status).toBe(204)
+  })
+
+  it('accepts exactly 12 characters', async () => {
+    const token = await requestToken()
+    expect((await reset(token, 'abcdefghijkl')).status).toBe(204)
+  })
+
+  it.each([
+    ['a breached password', 'Password1234', 'This password has appeared in a data breach. Choose another.'],
+    ['the account email', admin.email.toUpperCase(), 'Do not use your email address as your password.'],
+    ['no password', null, 'Enter a new password.'],
+  ])('returns errors.newPassword for %s', async (_name, password, message) => {
+    const token = await requestToken()
+    const body = await expectProblem(await reset(token, password), 400)
+    expect(body.errors).toEqual({ newPassword: [message] })
+  })
+
+  it('does not apply composition rules', async () => {
+    const token = await requestToken()
+    expect((await reset(token, 'alllowercaseletters')).status).toBe(204)
+  })
+
+  it('checks the token before the password, so a bad link says nothing about the password', async () => {
+    const body = await expectProblem(await reset('garbage', 'short'), 400)
+    expect(body.errors).toBeUndefined()
+    expect(body.detail).toBe('This reset link is invalid or has expired.')
+  })
+
+  it('revokes the refresh session of that user', async () => {
+    const login = await post('/auth/mfa', { challengeId: 'mock-challenge.u1', code: DEMO_CODE })
+    const cookie = cookieOf(login)!
+    const token = await requestToken()
+    expect((await reset(token)).status).toBe(204)
+    await expectProblem(await refresh(cookie), 401)
   })
 })

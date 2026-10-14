@@ -5,6 +5,7 @@ import { HomeRedirect } from '@/features/auth/components/HomeRedirect'
 import { RequireArea } from '@/features/auth/components/RequireArea'
 import { RequireAuth } from '@/features/auth/components/RequireAuth'
 import LoginPage from '@/features/auth/pages/LoginPage'
+import ResetPasswordPage from '@/features/auth/pages/ResetPasswordPage'
 import { AppShell } from './layout/AppShell'
 
 
@@ -14,6 +15,7 @@ const page = (load: () => Promise<{ default: ComponentType }>) => ({
 
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   {
     element: <RequireAuth />,
     // Shown while lazy page modules load on the first render.
