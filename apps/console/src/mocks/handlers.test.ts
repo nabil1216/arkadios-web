@@ -1,7 +1,7 @@
 import { setupServer } from 'msw/node'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { API_BASE } from '@/lib/api'
-import { DEMO_CODE, DEMO_PASSWORD, staff } from './db'
+import { DEMO_CODE, DEMO_PASSWORD, permissions, staff } from './db'
 import { handlers } from './handlers'
 
 const server = setupServer(...handlers)
@@ -304,5 +304,60 @@ describe('password reset', () => {
     const token = await requestToken()
     expect((await reset(token)).status).toBe(204)
     await expectProblem(await refresh(cookie), 401)
+  })
+})
+
+describe('GET /tenants', () => {
+  const as = (userId: string) => ({ Authorization: `Bearer mock-access.${userId}` })
+  const get = (query = '', headers: Record<string, string> = as('u1')) => fetch(url('/tenants' + query), { headers })
+
+  it('needs a bearer token', async () => {
+    await expectProblem(await get('', {}), 401)
+  })
+
+  it('returns the list envelope with no-store caching', async () => {
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const body = await res.json()
+    expect(body).toEqual({ items: expect.any(Array), total: 6, page: 1, pageSize: 25 })
+    expect(body.items[0]).toMatchObject({ name: 'Arkadios Home Office', database: 'tenant_arkadios' })
+  })
+
+  it('is open to every role that holds tenants.view', async () => {
+    for (const id of ['u1', 'u2', 'u3', 'u4']) expect((await get('', as(id))).status, id).toBe(200)
+  })
+
+  it('refuses a caller without tenants.view, as a problem', async () => {
+    const original = permissions.support
+    permissions.support = original.filter((k) => !k.startsWith('tenants.'))
+    try {
+      const body = await expectProblem(await get('', as('u2')), 403)
+      expect(body.detail).toBe('Your role does not include Tenants.')
+    } finally {
+      permissions.support = original
+    }
+  })
+
+  it('filters, sorts and pages from the query string', async () => {
+    const body = await (await get('?status=active&sort=-usersUsed&page=2&pageSize=2')).json()
+    expect(body).toMatchObject({ total: 4, page: 2, pageSize: 2 })
+    expect(body.items.map((t: { usersUsed: number }) => t.usersUsed)).toEqual([64, 47])
+  })
+
+  it('url-decodes q', async () => {
+    const body = await (await get('?q=' + encodeURIComponent('marlow & finch'))).json()
+    expect(body.items.map((t: { name: string }) => t.name)).toEqual(['Marlow & Finch Partners'])
+  })
+
+  it('returns a validation problem with the error key per bad parameter', async () => {
+    const body = await expectProblem(await get('?status=nope&sort=id&page=0&pageSize=500'), 400)
+    expect(Object.keys(body.errors!).sort()).toEqual(['page', 'pageSize', 'sort', 'status'])
+  })
+
+  it('never exposes a connection string, only the database name', async () => {
+    const text = await (await get()).text()
+    expect(text).not.toMatch(/Server=|Password|connectionString/i)
+    expect(text).toContain('tenant_northwind')
   })
 })

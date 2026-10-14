@@ -214,6 +214,27 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   The backend may upgrade this to a double-submit token later; the UI change would be one header.
 - A reused or invalid refresh token ends the session and the client returns to login.
 
+**Tenants list (platform API; other lists follow the same shape)**
+- `GET /tenants?q=&status=&sort=&page=&pageSize=`. Needs `tenants.view`: `401` without a valid token, `403` without the key.
+  Responses carry `Cache-Control: no-store`.
+- Response: `{ items, total, page, pageSize }`. `total` is the count after filtering, before paging.
+- Item: `{ id, name, domain, database, planId, planName, usersUsed, userLimit, status, createdAt }`.
+  `id` is an opaque GUID, never a sequence number. `status` is `active`, `trial`, `suspended` or `offboarding`.
+  `createdAt` is ISO 8601 UTC. `database` is the database name only.
+- `q`: optional text, trimmed, at most 100 characters, matched case-insensitively as "contains" against name, domain and database.
+  `%` and `_` in `q` are plain characters, not wildcards.
+- `status`: optional, one of the four values above. Omit it for all statuses; `all` is not a value.
+- `sort`: one key from the whitelist `name`, `plan`, `usersUsed`, `status`, `createdAt`; a leading `-` means descending. Default `name`.
+  `plan` sorts by `planName`. Ties always fall back to `name` ascending, then `id` ascending, whatever the direction, so pages never repeat or skip rows.
+- Paging: `page` is a whole number from 1 (default 1); `pageSize` is a whole number from 1 to 100 (default 25).
+  A page past the end returns `200` with empty `items` and the real `total`.
+- Invalid parameters return `400` `application/problem+json` with `errors` keyed by parameter:
+  `q`, `status`, `sort`, `page`, `pageSize`. Every bad parameter is reported in one response. Unknown parameters are ignored.
+- Backend notes:
+  - `sort` accepts only whitelisted keys, each mapped to a column in code. A request value is never placed in an `ORDER BY` string.
+  - `q` always goes in as a query parameter, never concatenated into SQL, and `%`, `_` and the escape character are escaped before the `LIKE`.
+  - Responses are DTOs. They never include connection strings or any secret, only the database name.
+
 **Password reset (platform API; the tenant API follows the same shape)**
 - `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists
   (no account enumeration). Strict rate limit per IP and per email; `429` with `Retry-After`. The email is sent by a job (outbox), not inline.

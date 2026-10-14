@@ -1,7 +1,9 @@
 import { delay, http, HttpResponse } from 'msw'
 import type { SessionResponse } from '@/features/auth/api/types'
 import { API_BASE, CSRF_HEADER } from '@/lib/api'
+import { hasPermission } from '@/features/auth/hooks/permissions'
 import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
+import { queryTenants } from './tenants'
 import { ACCESS_TOKEN_SECONDS, DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
 
 const ACCESS_PREFIX = 'mock-access.'
@@ -177,6 +179,21 @@ export const handlers = [
     const token = parseRefreshCookie(cookies[REFRESH_COOKIE])
     if (token) families.delete(token.userId)
     return new HttpResponse(null, { status: 204, headers: { 'Set-Cookie': clearedRefreshCookie } })
+  }),
+
+  http.get(`${API_BASE}/tenants`, async ({ request }) => {
+    await delay(150)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    // The server is the authority: the UI hiding the menu is only cosmetic.
+    if (!hasPermission(permissions, user.role, 'tenants.view')) {
+      return problem(403, 'auth/forbidden', 'Forbidden', { detail: 'Your role does not include Tenants.' })
+    }
+    const result = queryTenants(new URL(request.url).searchParams)
+    if (!result.ok) {
+      return problem(400, 'validation', 'One or more validation errors occurred.', { errors: result.errors })
+    }
+    return HttpResponse.json(result.body, { headers: { 'Cache-Control': 'no-store' } })
   }),
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {
