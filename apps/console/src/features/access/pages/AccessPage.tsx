@@ -1,8 +1,12 @@
-import type { ReactNode } from 'react'
+import { Plus } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
 import { PageHeader } from '@/components/PageHeader'
 import { QueryErrorPanel } from '@/components/QueryErrorPanel'
+import { Button } from '@/components/ui/button'
+import { Can } from '@/features/auth/components/Can'
 import { usePermission } from '@/features/auth/hooks/usePermission'
 import { useSession } from '@/features/auth/hooks/session'
+import { InviteDialog } from '../components/InviteDialog'
 import { RolesMatrix } from '../components/RolesMatrix'
 import { SignInSecurity } from '../components/SignInSecurity'
 import { StaffSection } from '../components/StaffSection'
@@ -27,13 +31,26 @@ export default function AccessPage() {
   const staff = useStaff()
   const roles = useRoles()
   const canManage = usePermission('access.manage').allowed
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const inviteButton = useRef<HTMLButtonElement>(null)
   const members = staff.data?.items
   const selfId = session.status === 'authenticated' ? session.user.id : undefined
   const idleMinutes = session.status === 'authenticated' ? session.idleMinutes : undefined
 
   return (
     <>
-      <PageHeader title="Access control" description="Who can use the platform console, and what each role can do." />
+      <PageHeader
+        title="Access control"
+        description="Who can use the platform console, and what each role can do."
+        actions={
+          <Can permission="access.manage">
+            {/* The role names, and which roles hold access.manage, come from the server: wait for them. */}
+            <Button ref={inviteButton} id="ac-invite" disabled={!roles.data} onClick={() => setInviteOpen(true)}>
+              <Plus aria-hidden="true" /> Invite staff member
+            </Button>
+          </Can>
+        }
+      />
 
       <Panel id="ac-staff" title="Staff" aside={members ? <span className="text-ink-2">{people(members.length)}</span> : null}>
         {staff.isError && !members ? (
@@ -56,6 +73,10 @@ export default function AccessPage() {
           <RolesMatrix roles={roles.data?.items} />
         )}
       </Panel>
+
+      {roles.data ? (
+        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles.data.items} members={members ?? []} returnFocusTo={inviteButton} />
+      ) : null}
 
       <Panel id="ac-security" title="Sign-in security">
         <SignInSecurity idleMinutes={idleMinutes} />

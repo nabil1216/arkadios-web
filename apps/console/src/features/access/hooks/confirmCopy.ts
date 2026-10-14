@@ -87,3 +87,15 @@ export function confirmCopy(change: PendingChange, roles: RoleInfo[]): ConfirmCo
     destructive: true,
   }
 }
+
+/** Asked before inviting someone into a role that holds access.manage. */
+export function inviteConfirmCopy(name: string, role: RoleInfo): ConfirmCopy {
+  return {
+    title: `Invite ${name} as ${role.name}?`,
+    intro: [`${role.name} can change who has access to this console and what every role can do. ${name} will be able to do that too.`],
+    items: [],
+    outro: [`${name} gets an email with a link to set a password. You never see or set it.`],
+    confirmLabel: 'Send invitation',
+    destructive: false,
+  }
+}
