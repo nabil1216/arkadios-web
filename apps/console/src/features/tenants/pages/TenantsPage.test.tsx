@@ -9,6 +9,7 @@ import { sessionStore } from '@/features/auth/hooks/session'
 import { API_BASE } from '@/lib/api'
 import { handlers } from '@/mocks/handlers'
 import { problem } from '@/mocks/problem'
+import { resetMockTenants, setProvisionStepMs } from '@/mocks/tenantCreate'
 import { makeSession, renderRoutes } from '@/test/render'
 import TenantsPage from './TenantsPage'
 
@@ -308,11 +309,13 @@ describe('TenantsPage paging', () => {
 describe('TenantsPage permissions', () => {
   beforeEach(() => sessionStore.reset())
 
-  it('offers Manage and Create tenant to a role with tenants.manage', async () => {
+  it('offers Manage and an enabled Create tenant to a role with tenants.manage', async () => {
     open('', 'admin')
     await waitFor(() => expect(screen.getAllByRole('button', { name: /^Manage / })).toHaveLength(6))
     expect(screen.getByRole('button', { name: 'Manage Northwind Advisory Group' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Create tenant/ })).toBeInTheDocument()
+    const create = screen.getByRole('button', { name: /Create tenant/ })
+    expect(create).toBeInTheDocument()
+    expect(create).not.toHaveAttribute('aria-disabled')
     expect(screen.queryByRole('button', { name: /^View / })).not.toBeInTheDocument()
   })
 
@@ -344,13 +347,12 @@ describe('TenantsPage permissions', () => {
     }
   })
 
-  it('marks Manage, Sign in as and Create tenant as coming in a later step, and they do nothing', async () => {
+  it('marks Manage and Sign in as as coming in a later step, and they do nothing', async () => {
     const user = userEvent.setup()
     const { router } = open('', 'admin')
-    const create = await screen.findByRole('button', { name: /Create tenant/ })
     const manage = await screen.findByRole('button', { name: 'Manage Cobalt Ridge Wealth' })
     const signInAs = await screen.findByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' })
-    for (const button of [create, manage, signInAs]) {
+    for (const button of [manage, signInAs]) {
       expect(button).toHaveAttribute('aria-disabled', 'true')
       expect(button).toHaveAttribute('title', 'Coming in a later step')
       expect(button).toHaveAccessibleDescription('Coming in a later step')
@@ -358,5 +360,80 @@ describe('TenantsPage permissions', () => {
     }
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(searchOf(router)).toBe('')
+  })
+})
+
+describe('TenantsPage create tenant', () => {
+  beforeEach(() => {
+    sessionStore.reset()
+    resetMockTenants()
+    setProvisionStepMs(30)
+  })
+  afterEach(() => {
+    resetMockTenants()
+    setProvisionStepMs(850)
+  })
+
+  it('opens the drawer from Create tenant', async () => {
+    const user = userEvent.setup()
+    open('', 'admin')
+    await waitFor(() => expect(rowCount()).toBe(6))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /Create tenant/ }))
+    expect(await screen.findByRole('dialog', { name: 'Create tenant' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('shows the new tenant in the list, as a one-user trial, without a reload', async () => {
+    // Slow enough that the refresh right after the 202 cannot see the tenant: only the refresh at the end can.
+    setProvisionStepMs(120)
+    const user = userEvent.setup()
+    open('', 'admin')
+    await waitFor(() => expect(rowCount()).toBe(6))
+    await user.click(await screen.findByRole('button', { name: /Create tenant/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(await within(dialog).findByLabelText('Company name'), 'Harbor Lane Advisors')
+    await user.type(within(dialog).getByLabelText('First admin email'), 'it@harborlane.example')
+    await user.click(within(dialog).getByRole('button', { name: 'Create tenant' }))
+
+    await within(dialog).findByRole('heading', { name: 'Harbor Lane Advisors is ready' }, { timeout: 8000 })
+    expect(rowCount()).toBeGreaterThanOrEqual(6)
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await waitFor(() => expect(rowCount()).toBe(7))
+    const row = screen.getByText('Harbor Lane Advisors', { selector: 'strong' }).closest('tr')!
+    expect(within(row).getByText('harbor-lane-advisors.platform.example')).toBeInTheDocument()
+    expect(within(row).getByText('1 of 50')).toBeInTheDocument()
+    expect(within(row).getByText('Trial')).toBeInTheDocument()
+    expect(within(row).getByText('Professional')).toBeInTheDocument()
+  }, 15_000)
+
+  it('opens a fresh form the next time, not the previous ready note', async () => {
+    const user = userEvent.setup()
+    open('', 'admin')
+    await waitFor(() => expect(rowCount()).toBe(6))
+    await user.click(await screen.findByRole('button', { name: /Create tenant/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(await within(dialog).findByLabelText('Company name'), 'Harbor Lane Advisors')
+    await user.type(within(dialog).getByLabelText('First admin email'), 'it@harborlane.example')
+    await user.click(within(dialog).getByRole('button', { name: 'Create tenant' }))
+    await within(dialog).findByRole('heading', { name: /is ready/ }, { timeout: 5000 })
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /Create tenant/ }))
+    const again = await screen.findByRole('dialog')
+    expect(await within(again).findByLabelText('Company name')).toHaveValue('')
+    expect(within(again).queryByRole('heading', { name: /is ready/ })).not.toBeInTheDocument()
+    expect(within(again).queryByRole('list')).not.toBeInTheDocument()
+  }, 10_000)
+
+  it('does not offer the drawer to a role without tenants.manage', async () => {
+    open('', 'support')
+    await waitFor(() => expect(rowCount()).toBe(6))
+    expect(screen.queryByRole('button', { name: /Create tenant/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

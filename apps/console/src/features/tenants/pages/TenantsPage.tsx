@@ -1,10 +1,13 @@
 import { Plus } from 'lucide-react'
+import { useState } from 'react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Can } from '@/features/auth/components/Can'
 import { ApiError } from '@/lib/api'
 import { TenantsPager } from '../components/TenantsPager'
-import { TenantsTable, COMING_LATER, COMING_LATER_ID } from '../components/TenantsTable'
+import { COMING_LATER, COMING_LATER_ID } from '../components/pendingAction'
+import { CreateTenantDrawer } from '../components/CreateTenantDrawer'
+import { TenantsTable } from '../components/TenantsTable'
 import { TenantsToolbar } from '../components/TenantsToolbar'
 import { useTenantList } from '../hooks/useTenantList'
 
@@ -15,6 +18,7 @@ export default function TenantsPage() {
   const { state, query, update } = useTenantList()
   const { data, isError, error, isPlaceholderData, refetch } = query
   const filtered = state.q !== '' || state.status !== 'all'
+  const [createOpen, setCreateOpen] = useState(false)
 
   return (
     <>
@@ -23,7 +27,7 @@ export default function TenantsPage() {
         description="Each tenant has its own domain, database, plan, and user limit."
         actions={
           <Can permission="tenants.manage">
-            <Button aria-disabled="true" aria-describedby={COMING_LATER_ID} title={COMING_LATER} onClick={(e) => e.preventDefault()} className="cursor-not-allowed opacity-50">
+            <Button onClick={() => setCreateOpen(true)}>
               <Plus size={18} strokeWidth={1.7} aria-hidden="true" /> Create tenant
             </Button>
           </Can>
@@ -32,6 +36,10 @@ export default function TenantsPage() {
       <p id={COMING_LATER_ID} className="sr-only">
         {COMING_LATER}
       </p>
+
+      <Can permission="tenants.manage">
+        <CreateTenantDrawer open={createOpen} onOpenChange={setCreateOpen} />
+      </Can>
 
       <TenantsToolbar
         q={state.q}

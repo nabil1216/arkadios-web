@@ -18,13 +18,11 @@ import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { Tenant, TenantSortKey } from '../api/types'
 import { ariaSort, nextSort, parseSort } from '../hooks/listParams'
+import { COMING_LATER, COMING_LATER_ID } from './pendingAction'
 
 // Sorting, filtering and paging all happen on the server; the table only holds the state and the markup.
 const features = tableFeatures({ rowSortingFeature, rowPaginationFeature })
 const helper = createColumnHelper<typeof features, Tenant>()
-
-export const COMING_LATER = 'Coming in a later step'
-export const COMING_LATER_ID = 'coming-later-hint'
 
 // Teal ghost buttons from the demo (.btn--ghost .btn--small). They do nothing yet: the drawer and
 // the support session are later steps, so they stay focusable but aria-disabled, with a hint.
