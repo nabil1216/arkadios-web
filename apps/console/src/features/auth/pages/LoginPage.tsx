@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { ApiError } from '@/lib/api'
 import { redirectTarget } from '@/lib/safe-redirect'
 import { login, startSession, verifyMfa } from '../api/auth'
+import { ForgotPasswordDialog } from '../components/ForgotPasswordDialog'
 import { useSession } from '../hooks/session'
 
 const credentialsSchema = z.object({
@@ -41,51 +42,75 @@ function CredentialsForm({ onChallenge }: { onChallenge: (id: string) => void })
   const {
     register,
     handleSubmit,
+    setError,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<Credentials>({ resolver: zodResolver(credentialsSchema) })
+  const [forgotOpen, setForgotOpen] = useState(false)
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null)
     try {
       const res = await login(values.email, values.password)
-      if (res.mfaRequired) onChallenge(res.challengeId)
-      else startSession(res)
+      onChallenge(res.challengeId)
     } catch (e) {
+      // Field errors from the server (a 400 ProblemDetails) land on the fields.
+      const fields = e instanceof ApiError ? e.errors : undefined
+      const email = fields?.email?.[0]
+      const password = fields?.password?.[0]
+      if (email) setError('email', { message: email })
+      if (password) setError('password', { message: password })
+      if (email || password) return
       setFormError(e instanceof ApiError && e.status === 401 ? 'Incorrect email or password.' : 'Could not sign in. Try again.')
     }
   })
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-4">
-      <div className="grid gap-1.5">
-        <Label htmlFor="lg-email">Email</Label>
-        <Input
-          id="lg-email"
-          type="email"
-          autoComplete="username"
-          aria-invalid={!!errors.email}
-          aria-describedby={errors.email ? 'lg-email-err' : undefined}
-          {...register('email')}
-        />
-        <FieldError id="lg-email-err" message={errors.email?.message} />
-      </div>
-      <div className="grid gap-1.5">
-        <Label htmlFor="lg-password">Password</Label>
-        <Input
-          id="lg-password"
-          type="password"
-          autoComplete="current-password"
-          aria-invalid={!!errors.password}
-          aria-describedby={errors.password ? 'lg-password-err' : undefined}
-          {...register('password')}
-        />
-        <FieldError id="lg-password-err" message={errors.password?.message} />
-      </div>
-      <FieldError id="lg-form-err" message={formError ?? undefined} />
-      <Button type="submit" disabled={isSubmitting}>
-        Sign in
-      </Button>
-    </form>
+    <>
+      <form onSubmit={onSubmit} noValidate className="grid gap-4">
+        <div className="grid gap-1.5">
+          <Label htmlFor="lg-email">Email</Label>
+          <Input
+            id="lg-email"
+            type="email"
+            autoComplete="username"
+            aria-invalid={!!errors.email}
+            aria-describedby={errors.email ? 'lg-email-err' : undefined}
+            {...register('email')}
+          />
+          <FieldError id="lg-email-err" message={errors.email?.message} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="lg-password">Password</Label>
+          <Input
+            id="lg-password"
+            type="password"
+            autoComplete="current-password"
+            aria-invalid={!!errors.password}
+            aria-describedby={errors.password ? 'lg-password-err' : undefined}
+            {...register('password')}
+          />
+          <FieldError id="lg-password-err" message={errors.password?.message} />
+        </div>
+        <div className="-mt-1.5 text-[13.5px]">
+          <button
+            type="button"
+            onClick={() => setForgotOpen(true)}
+            className="cursor-pointer border-0 bg-transparent p-0 text-teal-ink underline"
+          >
+            Forgot password?
+          </button>
+        </div>
+        <FieldError id="lg-form-err" message={formError ?? undefined} />
+        <Button type="submit" disabled={isSubmitting}>
+          Sign in
+        </Button>
+      </form>
+      {/* Outside the form: React events from a portal bubble to the parent form's onSubmit. */}
+      {forgotOpen ? (
+        <ForgotPasswordDialog open onOpenChange={setForgotOpen} defaultEmail={getValues('email')} />
+      ) : null}
+    </>
   )
 }
 

@@ -4,10 +4,10 @@ export const PASSWORD = 'demo-1234'
 export const CODE = '123456'
 
 export const accounts = {
-  admin: { email: 'dana.whitfield@platform.example', name: 'Dana Whitfield', label: 'Super admin', mfa: true },
-  support: { email: 'omar.haddad@platform.example', name: 'Omar Haddad', label: 'Support lead', mfa: true },
-  billing: { email: 'priya.nair@platform.example', name: 'Priya Nair', label: 'Billing manager', mfa: true },
-  auditor: { email: 'liam.carter@platform.example', name: 'Liam Carter', label: 'Auditor', mfa: false },
+  admin: { email: 'dana.whitfield@platform.example', name: 'Dana Whitfield', label: 'Super admin' },
+  support: { email: 'omar.haddad@platform.example', name: 'Omar Haddad', label: 'Support lead' },
+  billing: { email: 'priya.nair@platform.example', name: 'Priya Nair', label: 'Billing manager' },
+  auditor: { email: 'liam.carter@platform.example', name: 'Liam Carter', label: 'Auditor' },
 } as const
 
 export type Account = (typeof accounts)[keyof typeof accounts]
@@ -25,10 +25,8 @@ export async function signIn(page: Page, account: Account, opts: { next?: string
   await page.getByLabel('Email').fill(account.email)
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  if (account.mfa) {
-    await page.getByLabel('Authentication code').fill(CODE)
-    await page.getByRole('button', { name: 'Verify' }).click()
-  }
+  await page.getByLabel('Authentication code').fill(CODE)
+  await page.getByRole('button', { name: 'Verify' }).click()
   await expect(page.getByRole('navigation', { name: 'Platform' })).toBeVisible()
 }
 

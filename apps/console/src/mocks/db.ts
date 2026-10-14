@@ -6,22 +6,25 @@ import type { PermissionMap, Role } from '@/features/auth/api/types'
 export const DEMO_PASSWORD = 'demo-1234'
 export const DEMO_CODE = '123456'
 export const IDLE_MINUTES = 30
+/** Access token lifetime; the architecture asks for 10 to 15 minutes. */
+export const ACCESS_TOKEN_SECONDS = 900
 
+// MFA is required for every platform user (docs/ARCHITECTURE.md, section 5),
+// so staff have no per-user MFA switch.
 export interface SeedStaff {
   id: string
   name: string
   email: string
   role: Role
-  mfa: boolean
   status: 'active' | 'invited' | 'deactivated'
 }
 
 export const staff: SeedStaff[] = [
-  { id: 'u1', name: 'Dana Whitfield', email: 'dana.whitfield@platform.example', role: 'admin', mfa: true, status: 'active' },
-  { id: 'u2', name: 'Omar Haddad', email: 'omar.haddad@platform.example', role: 'support', mfa: true, status: 'active' },
-  { id: 'u3', name: 'Priya Nair', email: 'priya.nair@platform.example', role: 'billing', mfa: true, status: 'active' },
-  { id: 'u4', name: 'Liam Carter', email: 'liam.carter@platform.example', role: 'auditor', mfa: false, status: 'active' },
-  { id: 'u5', name: 'Sofia Reyes', email: 'sofia.reyes@platform.example', role: 'support', mfa: false, status: 'invited' },
+  { id: 'u1', name: 'Dana Whitfield', email: 'dana.whitfield@platform.example', role: 'admin', status: 'active' },
+  { id: 'u2', name: 'Omar Haddad', email: 'omar.haddad@platform.example', role: 'support', status: 'active' },
+  { id: 'u3', name: 'Priya Nair', email: 'priya.nair@platform.example', role: 'billing', status: 'active' },
+  { id: 'u4', name: 'Liam Carter', email: 'liam.carter@platform.example', role: 'auditor', status: 'active' },
+  { id: 'u5', name: 'Sofia Reyes', email: 'sofia.reyes@platform.example', role: 'support', status: 'invited' },
 ]
 
 /** Where each role lands after sign-in (LANDING in the demo). */

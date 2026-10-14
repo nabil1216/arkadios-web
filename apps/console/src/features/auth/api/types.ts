@@ -31,10 +31,13 @@ export interface StaffUser {
 
 export interface SessionResponse {
   accessToken: string
+  /** Access token lifetime in seconds; the client refreshes shortly before it ends. */
+  expiresIn: number
   idleMinutes: number
   user: StaffUser
 }
 
-export type LoginResponse =
-  | ({ mfaRequired: false } & SessionResponse)
-  | { mfaRequired: true; challengeId: string }
+/** Every platform user must pass MFA, so sign-in never returns a session directly. */
+export interface LoginResponse {
+  challengeId: string
+}

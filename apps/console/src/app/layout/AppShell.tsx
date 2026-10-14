@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { Outlet, useLocation } from 'react-router'
-import { Toaster } from '@/components/ui/sonner'
 import { useIdleSignOut } from '@/features/auth/hooks/useIdleSignOut'
 import { useSession } from '@/features/auth/hooks/session'
 import { Sidebar } from './Sidebar'
@@ -43,7 +42,6 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      <Toaster position="bottom-center" />
     </div>
   )
 }

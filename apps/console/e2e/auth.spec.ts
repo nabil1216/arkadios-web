@@ -43,6 +43,28 @@ test.describe('guard and sign-in', () => {
     await expect(page.getByLabel('Email')).toBeVisible()
   })
 
+  test('the refresh cookie rotates: several reloads in a row keep the session', async ({ page }) => {
+    await signIn(page, accounts.support)
+    for (let i = 0; i < 3; i++) {
+      await page.reload()
+      await expect(page.getByRole('navigation', { name: 'Platform' })).toBeVisible()
+    }
+    await expect(page).toHaveURL(/\/tenants$/)
+  })
+
+  test('refresh and logout send X-Requested-With: arkadios-web', async ({ page }) => {
+    const seen: Record<string, string | undefined> = {}
+    page.on('request', (r) => {
+      if (/\/auth\/(refresh|logout)$/.test(r.url())) seen[new URL(r.url()).pathname.split('/').pop()!] = r.headers()['x-requested-with']
+    })
+    await signIn(page, accounts.admin)
+    await page.reload()
+    await expect(page.getByRole('navigation', { name: 'Platform' })).toBeVisible()
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    await expect(page).toHaveURL(/\/login$/)
+    expect(seen).toEqual({ refresh: 'arkadios-web', logout: 'arkadios-web' })
+  })
+
   test('the session is never written to sessionStorage or localStorage by the app', async ({ page }) => {
     await signIn(page, accounts.admin)
     const storage = await page.evaluate(() => ({
@@ -50,6 +72,52 @@ test.describe('guard and sign-in', () => {
       local: Object.keys(localStorage).filter((k) => k !== '__msw-cookie-store__'),
     }))
     expect(storage).toEqual({ session: [], local: [] })
+  })
+})
+
+test.describe('forgot password', () => {
+  test('opens from the sign-in page, validates, and confirms without naming the account', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Reset your password' })
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByLabel('Work email').fill('nope')
+    await dialog.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Enter a valid email address.')
+
+    await dialog.getByLabel('Work email').fill(accounts.billing.email)
+    await dialog.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.getByText('If that email has an account, a reset link is on its way')).toBeVisible()
+    // the sign-in form is untouched: still on step one, not asking for a code
+    await expect(page.getByLabel('Password')).toBeVisible()
+  })
+
+  test('shows the same message for an email with no account', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await page.getByLabel('Work email').fill('nobody@platform.example')
+    await page.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(page.getByText('If that email has an account, a reset link is on its way')).toBeVisible()
+  })
+
+  test('carries over the email typed on the sign-in form, and Escape closes it', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByLabel('Email').fill(accounts.auditor.email)
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await expect(page.getByLabel('Work email')).toHaveValue(accounts.auditor.email)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toBeHidden()
+  })
+
+  test('does not submit the sign-in form', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByRole('button', { name: 'Forgot password?' }).click()
+    await page.getByLabel('Work email').fill(accounts.admin.email)
+    await page.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(page.getByText('Enter your password')).toHaveCount(0)
+    await expect(page.getByText('Enter a valid email address')).toHaveCount(0)
   })
 })
 
@@ -82,10 +150,16 @@ test.describe('MFA', () => {
     await expect(page.getByText('Enter the 6-digit code')).toBeVisible()
   })
 
-  test('an auditor with no MFA set up skips the code', async ({ page }) => {
-    await signIn(page, accounts.auditor)
-    await expect(page).toHaveURL(/\/overview$/)
-  })
+  for (const [role, account] of Object.entries(accounts)) {
+    test(`${role} is asked for a code`, async ({ page }) => {
+      await page.goto('/login')
+      await page.getByLabel('Email').fill(account.email)
+      await page.getByLabel('Password').fill(PASSWORD)
+      await page.getByRole('button', { name: 'Sign in' }).click()
+      await expect(page.getByLabel('Authentication code')).toBeVisible()
+      await expect(page.getByRole('navigation', { name: 'Platform' })).toHaveCount(0)
+    })
+  }
 })
 
 test.describe('role menus and landing pages', () => {
@@ -167,6 +241,8 @@ test.describe('next redirect', () => {
     await page.getByLabel('Email').fill(accounts.auditor.email)
     await page.getByLabel('Password').fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
+    await page.getByLabel('Authentication code').fill(CODE)
+    await page.getByRole('button', { name: 'Verify' }).click()
     await expect(page).toHaveURL(/\/tenants\?status=trial$/)
   })
 })

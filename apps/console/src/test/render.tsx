@@ -6,6 +6,7 @@ import type { SessionResponse } from '@/features/auth/api/types'
 export function makeSession(role: SessionResponse['user']['role'] = 'support'): SessionResponse {
   return {
     accessToken: 'test-token',
+    expiresIn: 900,
     idleMinutes: 30,
     user: { id: 'u1', name: 'Omar Haddad', email: 'omar@platform.example', role, home: '/tenants' },
   }

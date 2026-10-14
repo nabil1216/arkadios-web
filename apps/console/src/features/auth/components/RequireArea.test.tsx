@@ -68,7 +68,7 @@ describe('RequireArea', () => {
 
   it('shows an error with retry when permissions fail to load', async () => {
     sessionStore.setSession(makeSession('billing'))
-    vi.mocked(fetchPermissions).mockRejectedValue(new ApiError(500, 'boom'))
+    vi.mocked(fetchPermissions).mockRejectedValue(new ApiError({ title: 'Server error', status: 500 }))
     renderRoutes(routes, '/transactions')
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
