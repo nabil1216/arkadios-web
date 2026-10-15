@@ -12,6 +12,7 @@ import { RolesMatrix } from '../components/RolesMatrix'
 import { RolesSection } from '../components/RolesSection'
 import { SignInSecurity } from '../components/SignInSecurity'
 import { StaffSection } from '../components/StaffSection'
+import { assignableRoles } from '../hooks/outranks'
 import { useRoles, useStaff } from '../hooks/useAccessData'
 
 const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`
@@ -25,6 +26,7 @@ export default function AccessPage() {
   const inviteButton = useRef<HTMLButtonElement>(null)
   const members = staff.data?.items
   const selfId = session.status === 'authenticated' ? session.user.id : undefined
+  const actorRole = session.status === 'authenticated' ? session.user.role : undefined
   const idleMinutes = session.status === 'authenticated' ? session.idleMinutes : undefined
 
   return (
@@ -69,7 +71,7 @@ export default function AccessPage() {
       )}
 
       {roles.data ? (
-        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles.data.items} members={members ?? []} returnFocusTo={inviteButton} />
+        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={assignableRoles(roles.data.items, actorRole)} members={members ?? []} returnFocusTo={inviteButton} />
       ) : null}
 
       <Panel id="ac-security" title="Sign-in security">

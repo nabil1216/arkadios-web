@@ -9,7 +9,7 @@ import { accessKey, removeStaff, resendInvite, updateStaff } from '../api/access
 import { accessErrorText, isStale } from '../api/problems'
 import type { RoleInfo, StaffMember, UpdateStaffInput } from '../api/types'
 import { confirmCopy, roleChangeNeedsConfirm, type PendingChange } from '../hooks/confirmCopy'
-import { canChangeRole } from '../hooks/outranks'
+import { assignableRoles, canChangeRole } from '../hooks/outranks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { StaffTable } from './StaffTable'
 
@@ -83,6 +83,7 @@ export function StaffSection({ members, roles, selfId, canManage }: StaffSection
       ? {
           busy: guard.pending,
           canChange: (member: StaffMember) => canChangeRole(roles, actorRole, member.role),
+          assignable: assignableRoles(roles, actorRole).map((r) => r.id),
           onRoleChange(member: StaffMember, to: Role) {
             if (to === member.role) return
             if (roleChangeNeedsConfirm(roles, member, to)) {

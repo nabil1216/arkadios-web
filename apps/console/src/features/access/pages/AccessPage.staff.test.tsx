@@ -412,19 +412,40 @@ describe('when the server says no', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('You cannot remove your own access to Access control. Ask another Super admin to do it.')
   })
 
-  it('refuses to hand out a role the person does not hold (escalation), from the real rules', async () => {
-    permissions.support = [...permissions.support, 'access.manage'] // Omar can manage access, but not as a Super admin
-    const user = userEvent.setup()
+  it('offers a manager only the roles they may hand out, not the ones the server would refuse (escalation)', async () => {
+    permissions.support = [...permissions.support, 'access.manage'] // Omar manages access, but is not a Super admin
     open('support')
     await waitFor(() => expect(staffRows()).toHaveLength(5))
     await screen.findAllByRole('button', { name: /^Remove/ })
-    await user.selectOptions(roleSelect('Sofia Reyes'), 'admin') // Sofia is a Support lead too, so Omar may change her
-    // Nothing is taken away and Support lead already holds access.manage, so there is no question: the refusal shows above the table.
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('You cannot grant what you do not hold yourself')
-    expect(alert).toHaveTextContent('tenants.manage')
-    await waitFor(() => expect(roleSelect('Sofia Reyes')).toHaveValue('support'))
-    expect(platformAuditLog()).toEqual([])
+    const names = (select: HTMLSelectElement) => Array.from(select.options).map((o) => o.textContent)
+    expect(names(roleSelect('Sofia Reyes'))).toEqual(['Support lead'])
+    expect(names(roleSelect('Dana Whitfield'))).toEqual(['Super admin']) // out of reach: shows their role, nothing else
+    expect(names(roleSelect('Priya Nair'))).toEqual(['Billing manager'])
+  })
+
+  it('offers a Super admin every role', async () => {
+    open()
+    await loaded()
+    const names = (select: HTMLSelectElement) => Array.from(select.options).map((o) => o.textContent)
+    expect(names(roleSelect('Omar Haddad'))).toEqual(['Super admin', 'Support lead', 'Billing manager', 'Auditor'])
+    expect(names(roleSelect('Liam Carter'))).toEqual(['Super admin', 'Support lead', 'Billing manager', 'Auditor'])
+  })
+
+  it('offers a role whose permissions the caller holds in full, with manage covering view', async () => {
+    permissions.billing = [...permissions.billing, 'access.manage'] // Billing manager: tenants.view, plans.view, billing.manage, transactions.manage
+    permissions.auditor = ['tenants.view', 'billing.view']
+    open('billing')
+    await waitFor(() => expect(staffRows()).toHaveLength(5))
+    await screen.findAllByRole('button', { name: /^Remove/ })
+    const names = Array.from(roleSelect('Liam Carter').options).map((o) => o.textContent)
+    expect(names).toEqual(['Billing manager', 'Auditor'])
+  })
+
+  it('shows a read-only role just each person\'s own role', async () => {
+    open('auditor')
+    await waitFor(() => expect(staffRows()).toHaveLength(5))
+    await screen.findByRole('columnheader', { name: /Super admin/ })
+    expect(Array.from(roleSelect('Omar Haddad').options).map((o) => o.textContent)).toEqual(['Support lead'])
   })
 
   it('shows a refusal without a question in the banner, and the select goes back', async () => {

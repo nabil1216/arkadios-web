@@ -409,6 +409,9 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   - **Rate limits.** Invite and resend are rate limited per actor and per target email (`429` with `Retry-After`). The email is sent
     by the job outbox, not inline, and the response never says whether it was delivered.
   - The invitation link has a longer expiry than a reset link; the backend decides how long.
+- The console offers a role in a role select only if the signed-in role holds every permission that role holds (the roles a person may
+  hand out, their own included), and shows people they outrank no role select or Deactivate, Reactivate and Remove buttons. This is
+  cosmetic: the server decides, and answers `access/escalation` or `access/outranked` if a request gets through anyway.
 - The console asks before it does any of these, naming the person (or the role and how many people it affects) and what changes:
   demoting or moving someone to a role with fewer permissions, disabling, removing, inviting or assigning a role that holds
   `access.manage`, saving a role edit that removes permissions, and granting `access.manage` to a role. The server does not ask. Cancel

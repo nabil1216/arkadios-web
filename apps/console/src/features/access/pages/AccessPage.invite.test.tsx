@@ -363,16 +363,36 @@ describe('Invite staff member: a role that holds access.manage asks first', () =
     expect(await screen.findByRole('heading', { name: 'Invite Test Person as Billing manager?' })).toBeInTheDocument()
   })
 
-  it('refuses to invite into a role the inviter does not hold (escalation), back in the form', async () => {
+  it('offers a manager only the roles they may hand out', async () => {
     permissions.support = [...permissions.support, 'access.manage'] // Omar manages access, but is not a Super admin
     const user = userEvent.setup()
     open('support')
-    const confirm = await pickSuperAdmin(user)
-    await user.click(within(confirm).getByRole('button', { name: 'Send invitation' }))
-    const alert = await screen.findByText(/You cannot grant what you do not hold yourself/)
-    expect(alert.closest('[role="alert"]')).toBeInTheDocument()
+    await openForm(user)
+    expect(Array.from(role().options).map((o) => o.textContent)).toEqual(['Support lead'])
+    expect(role()).toHaveValue('support')
+  })
+
+  it('offers a Super admin every role', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    expect(Array.from(role().options).map((o) => o.textContent)).toEqual(['Super admin', 'Support lead', 'Billing manager', 'Auditor'])
+  })
+
+  it('shows the server\'s refusal (escalation) in the form if it comes anyway, and adds nobody', async () => {
+    server.use(
+      http.post(`${API_BASE}/staff`, () =>
+        problem(409, 'access/escalation', 'Not allowed', { detail: 'You cannot grant what you do not hold yourself (tenants.manage).' }),
+      ),
+    )
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await fill(user)
+    await user.click(send())
+    expect(await screen.findByText(/You cannot grant what you do not hold yourself/)).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Invite a staff member' })).toBeInTheDocument()
+    expect(name()).toHaveValue('Test Person')
     expect(staffRows()).toHaveLength(5)
-    expect(platformAuditLog()).toEqual([])
   })
 })

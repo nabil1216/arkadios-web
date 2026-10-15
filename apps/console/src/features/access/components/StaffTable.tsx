@@ -18,6 +18,8 @@ export interface StaffActions {
   busy: boolean
   /** Whether the signed-in role may change this person at all (it holds everything their role holds). */
   canChange: (member: StaffMember) => boolean
+  /** The roles the signed-in role may hand out (it holds all their permissions). Others are not offered. */
+  assignable: Role[]
   onRoleChange: (member: StaffMember, role: Role) => void
   onDeactivate: (member: StaffMember) => void
   onReactivate: (member: StaffMember) => void
@@ -62,7 +64,6 @@ function RowButtons({ member, actions }: { member: StaffMember; actions: StaffAc
 /** The demo's staff table: who can use the console, their role, MFA, last active and status. */
 export function StaffTable({ members, roles, selfId, actions }: StaffTableProps) {
   const roleName = (id: Role) => roles?.find((r) => r.id === id)?.name ?? ROLE_LABELS[id]
-  const options = roles ? roles.map((r) => r.id) : ROLE_IDS
 
   return (
     <div className="overflow-x-auto" aria-busy={!members}>
@@ -102,6 +103,8 @@ export function StaffTable({ members, roles, selfId, actions }: StaffTableProps)
               ))
             : members.map((m) => {
                 const self = m.id === selfId
+                // Only roles the caller may hand out, plus the person's own so the select can show it; just their own when out of reach.
+                const options = actions?.canChange(m) ? ROLE_IDS.filter((id) => id === m.role || actions.assignable.includes(id)) : [m.role]
                 return (
                   <TableRow key={m.id} data-staff={m.id} className="hover:bg-transparent">
                     <TableCell className={CELL}>
