@@ -165,16 +165,74 @@ describe('change a role', () => {
     expect(failed(updateStaff(dana(), 'u2', { role: 'owner', version: 1 })).status).toBe(400)
   })
 
-  it('refuses a role the actor does not hold themselves (escalation)', () => {
+  it('refuses a role the actor does not hold themselves (escalation), for someone inside the actor\'s own role', () => {
     supportCanManageAccess()
-    for (const [id, target] of [['u3', 'admin'], ['u3', 'auditor'], ['u4', 'billing']] as const) {
-      const result = failed(updateStaff(omar(), id, { role: target, version: 1 }))
+    for (const target of ['admin', 'billing', 'auditor'] as const) {
+      const result = failed(updateStaff(omar(), 'u5', { role: target, version: 1 })) // Sofia is a Support lead too
       expect(result, target).toMatchObject({ status: 409, slug: ACCESS_PROBLEM.escalation })
     }
-    expect(person('u3').role).toBe('billing')
-    expect(person('u4').role).toBe('auditor')
+    expect(person('u5').role).toBe('support')
     expect(platformAuditLog()).toEqual([])
-    succeeded(updateStaff(omar(), 'u4', { role: 'support', version: 1 })) // a role they hold in full
+    succeeded(updateStaff(omar(), 'u5', { role: 'support', version: 1 }))
+  })
+})
+
+describe('safety: outranked', () => {
+  const OUT = { status: 409, slug: ACCESS_PROBLEM.outranked }
+  beforeEach(supportCanManageAccess) // Omar manages access, but is not a Super admin
+
+  it('a manager cannot change the role of someone whose role holds a permission they lack', () => {
+    for (const id of ['u1', 'u3', 'u4']) expect(failed(updateStaff(omar(), id, { role: 'support', version: 1 })), id).toMatchObject(OUT)
+    expect(dana().role).toBe('admin')
+    expect(person('u3').role).toBe('billing')
+    expect(platformAuditLog()).toEqual([])
+  })
+
+  it('cannot deactivate or reactivate them', () => {
+    expect(failed(updateStaff(omar(), 'u1', { status: 'deactivated', version: 1 }))).toMatchObject(OUT)
+    person('u3').status = 'deactivated'
+    expect(failed(updateStaff(omar(), 'u3', { status: 'active', version: 1 }))).toMatchObject(OUT)
+  })
+
+  it('cannot remove them', () => {
+    expect(failed(removeStaff(omar(), 'u1', '1'))).toMatchObject(OUT)
+    expect(failed(removeStaff(omar(), 'u3', '1'))).toMatchObject(OUT)
+    expect(listStaff().items).toHaveLength(5)
+    expect(removedStaff()).toEqual([])
+  })
+
+  it('names the person and what they can do that the actor cannot', () => {
+    const result = failed(updateStaff(omar(), 'u1', { status: 'deactivated', version: 1 }))
+    expect(result.detail).toContain('Dana Whitfield can do things you cannot')
+    expect(result.detail).toContain('tenants.manage')
+    expect(result.detail).not.toContain('sms.manage') // Omar holds that
+  })
+
+  it('only a Super admin can touch a Super admin', () => {
+    expect(failed(updateStaff(omar(), 'u1', { role: 'support', version: 1 }))).toMatchObject(OUT)
+    succeeded(updateStaff(dana(), 'u2', { role: 'admin', version: 1 })) // a Super admin can make another one...
+    succeeded(updateStaff(omar(), 'u1', { role: 'support', version: 1 })) // ...who can then change the first
+  })
+
+  it('may change someone whose role the actor holds in full', () => {
+    person('u5').status = 'active'
+    succeeded(updateStaff(omar(), 'u5', { status: 'deactivated', version: 1 }))
+    succeeded(updateStaff(omar(), 'u5', { status: 'active', version: 2 }))
+    succeeded(removeStaff(omar(), 'u5', '3'))
+  })
+
+  it('checks a stale version first, so the person reloads and sees why', () => {
+    expect(failed(updateStaff(omar(), 'u1', { role: 'support', version: 9 })).errors).toHaveProperty('version')
+    expect(failed(removeStaff(omar(), 'u1', '9')).errors).toHaveProperty('version')
+  })
+
+  it('does not stand in the way of the other safety rules for someone the actor does not outrank', () => {
+    succeeded(updateStaff(omar(), 'u5', { role: 'support', version: 1 }))
+  })
+
+  it('applies when the target is invited or deactivated too: the role is what counts', () => {
+    person('u3').status = 'invited'
+    expect(failed(updateStaff(omar(), 'u3', { role: 'support', version: 1 })).slug).toBe(ACCESS_PROBLEM.outranked)
   })
 })
 
@@ -266,12 +324,6 @@ describe('disable, reactivate and remove', () => {
   it('only an active account can be disabled, and only a disabled one activated', () => {
     expect(failed(updateStaff(dana(), 'u5', { status: 'deactivated', version: 1 })).status).toBe(409)
     expect(failed(updateStaff(dana(), 'u2', { status: 'active', version: 1 })).status).toBe(409)
-  })
-
-  it('does not reactivate into a role the actor does not hold (escalation)', () => {
-    permissions.support = [...permissions.support, 'access.manage']
-    succeeded(updateStaff(dana(), 'u3', { status: 'deactivated', version: 1 }))
-    expect(failed(updateStaff(omar(), 'u3', { status: 'active', version: 2 })).slug).toBe(ACCESS_PROBLEM.escalation)
   })
 
   it('remove is a soft delete: gone from the list, kept aside, audited with a copy of the name', () => {

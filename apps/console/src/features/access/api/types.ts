@@ -67,5 +67,6 @@ export const ACCESS_PROBLEM = {
   lastAdmin: 'access/last-admin',
   lastManagerRole: 'access/last-manager-role',
   escalation: 'access/escalation',
+  outranked: 'access/outranked',
   roleLocked: 'access/role-locked',
 } as const

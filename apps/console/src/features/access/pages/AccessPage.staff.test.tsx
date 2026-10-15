@@ -323,6 +323,55 @@ describe('deactivating and removing ask first', () => {
   })
 })
 
+describe('someone who can do more than you is out of reach', () => {
+  beforeEach(() => {
+    permissions.support = [...permissions.support, 'access.manage'] // Omar manages access, but is not a Super admin
+  })
+  const openAsOmar = async () => {
+    open('support')
+    await waitFor(() => expect(staffRows()).toHaveLength(5))
+    await screen.findAllByRole('button', { name: /^Remove/ })
+  }
+
+  it('hides the controls the server would refuse: no role select, no Deactivate, Reactivate or Remove', async () => {
+    await openAsOmar()
+    for (const name of ['Dana Whitfield', 'Priya Nair', 'Liam Carter']) {
+      expect(roleSelect(name), name).toBeDisabled()
+      expect(within(rowOf(name)).queryByRole('button'), name).not.toBeInTheDocument()
+    }
+  })
+
+  it('keeps the controls for someone inside your own role', async () => {
+    await openAsOmar()
+    expect(roleSelect('Sofia Reyes')).toBeEnabled()
+    expect(within(rowOf('Sofia Reyes')).getByRole('button', { name: 'Remove Sofia Reyes' })).toBeInTheDocument()
+    expect(within(rowOf('Sofia Reyes')).getByRole('button', { name: 'Resend invite Sofia Reyes' })).toBeInTheDocument()
+  })
+
+  it('leaves a Super admin every control', async () => {
+    resetMockStaff()
+    open('admin')
+    await loaded()
+    for (const name of ['Omar Haddad', 'Priya Nair', 'Liam Carter']) expect(roleSelect(name), name).toBeEnabled()
+  })
+
+  it('still shows the server\'s sentence if it refuses anyway (the list was out of date)', async () => {
+    server.use(
+      http.delete(`${API_BASE}/staff/:id`, () =>
+        problem(409, 'access/outranked', 'Not allowed', { detail: 'Priya Nair can do things you cannot (billing.manage). Only someone who holds all of them can change this person.' }),
+      ),
+      http.patch(`${API_BASE}/staff/:id`, () =>
+        problem(409, 'access/outranked', 'Not allowed', { detail: 'Sofia Reyes can do things you cannot (x). Only someone who holds all of them can change this person.' }),
+      ),
+    )
+    const user = userEvent.setup()
+    await openAsOmar()
+    await user.click(screen.getByRole('button', { name: 'Remove Sofia Reyes' }))
+    await user.click(within(await dialog()).getByRole('button', { name: 'Remove' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('can do things you cannot')
+  })
+})
+
 describe('when the server says no', () => {
   const type = (slug: string) => `https://errors.arkadious.example/${slug}`
 
@@ -368,14 +417,13 @@ describe('when the server says no', () => {
     const user = userEvent.setup()
     open('support')
     await waitFor(() => expect(staffRows()).toHaveLength(5))
-    await screen.findAllByRole('button', { name: /^Deactivate/ })
-    await user.selectOptions(roleSelect('Liam Carter'), 'admin')
-    const confirm = await dialog()
-    await user.click(within(confirm).getByRole('button', { name: 'Change role' }))
-    const alert = await within(confirm).findByRole('alert')
+    await screen.findAllByRole('button', { name: /^Remove/ })
+    await user.selectOptions(roleSelect('Sofia Reyes'), 'admin') // Sofia is a Support lead too, so Omar may change her
+    // Nothing is taken away and Support lead already holds access.manage, so there is no question: the refusal shows above the table.
+    const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('You cannot grant what you do not hold yourself')
     expect(alert).toHaveTextContent('tenants.manage')
-    expect(roleSelect('Liam Carter')).toHaveValue('auditor')
+    await waitFor(() => expect(roleSelect('Sofia Reyes')).toHaveValue('support'))
     expect(platformAuditLog()).toEqual([])
   })
 

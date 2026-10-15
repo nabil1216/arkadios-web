@@ -2,12 +2,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useSession } from '@/features/auth/hooks/session'
 import type { Role } from '@/features/auth/api/types'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { accessKey, removeStaff, resendInvite, updateStaff } from '../api/access'
 import { accessErrorText, isStale } from '../api/problems'
 import type { RoleInfo, StaffMember, UpdateStaffInput } from '../api/types'
 import { confirmCopy, roleChangeNeedsConfirm, type PendingChange } from '../hooks/confirmCopy'
+import { canChangeRole } from '../hooks/outranks'
 import { ConfirmDialog } from './ConfirmDialog'
 import { StaffTable } from './StaffTable'
 
@@ -24,6 +26,8 @@ const STALE_NOTE = 'This was changed by someone else. The list now shows the lat
 /** The staff table with its row actions, the questions before risky changes, and the messages when the server says no. */
 export function StaffSection({ members, roles, selfId, canManage }: StaffSectionProps) {
   const queryClient = useQueryClient()
+  const session = useSession()
+  const actorRole = session.status === 'authenticated' ? session.user.role : undefined
   const guard = useSubmitGuard()
   const [pending, setPending] = useState<PendingChange | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -78,6 +82,7 @@ export function StaffSection({ members, roles, selfId, canManage }: StaffSection
     canManage && roles
       ? {
           busy: guard.pending,
+          canChange: (member: StaffMember) => canChangeRole(roles, actorRole, member.role),
           onRoleChange(member: StaffMember, to: Role) {
             if (to === member.role) return
             if (roleChangeNeedsConfirm(roles, member, to)) {

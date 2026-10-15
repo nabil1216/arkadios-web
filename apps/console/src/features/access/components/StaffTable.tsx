@@ -16,6 +16,8 @@ const ROLE_IDS = Object.keys(ROLE_LABELS) as Role[]
 export interface StaffActions {
   /** A change is running: everything waits. */
   busy: boolean
+  /** Whether the signed-in role may change this person at all (it holds everything their role holds). */
+  canChange: (member: StaffMember) => boolean
   onRoleChange: (member: StaffMember, role: Role) => void
   onDeactivate: (member: StaffMember) => void
   onReactivate: (member: StaffMember) => void
@@ -34,6 +36,7 @@ interface StaffTableProps {
 }
 
 function RowButtons({ member, actions }: { member: StaffMember; actions: StaffActions }) {
+  const out = !actions.canChange(member) // the server refuses these (access/outranked): do not offer them
   const button = (label: string, onClick: () => void) => (
     <Button variant="ghost" size="sm" className="text-teal-ink" disabled={actions.busy} onClick={onClick}>
       {label}
@@ -45,9 +48,13 @@ function RowButtons({ member, actions }: { member: StaffMember; actions: StaffAc
   return (
     <div className="flex flex-wrap justify-end gap-1">
       {member.status === 'invited' ? button('Resend invite', () => actions.onResend(member)) : null}
-      {member.status === 'active' ? button('Deactivate', () => actions.onDeactivate(member)) : null}
-      {member.status === 'deactivated' ? button('Reactivate', () => actions.onReactivate(member)) : null}
-      {button('Remove', () => actions.onRemove(member))}
+      {out ? null : (
+        <>
+          {member.status === 'active' ? button('Deactivate', () => actions.onDeactivate(member)) : null}
+          {member.status === 'deactivated' ? button('Reactivate', () => actions.onReactivate(member)) : null}
+          {button('Remove', () => actions.onRemove(member))}
+        </>
+      )}
     </div>
   )
 }
@@ -107,8 +114,8 @@ export function StaffTable({ members, roles, selfId, actions }: StaffTableProps)
                         id={`role-${m.id}`}
                         aria-label={`Role for ${m.name}`}
                         value={m.role}
-                        // Your own role stays locked; a deactivated person has nothing to change.
-                        disabled={!actions || actions.busy || self || m.status === 'deactivated'}
+                        // Your own role stays locked; a deactivated person has nothing to change; someone who can do more than you is out of reach.
+                        disabled={!actions || actions.busy || self || m.status === 'deactivated' || !actions.canChange(m)}
                         onChange={(e) => actions?.onRoleChange(m, e.target.value as Role)}
                         className="w-[170px]"
                       >

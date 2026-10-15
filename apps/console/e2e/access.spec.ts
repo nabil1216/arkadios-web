@@ -318,7 +318,7 @@ test.describe('a change takes effect for the next person', () => {
     await expect(page.getByText('Incorrect email or password.')).toBeVisible() // ptest3: "deactivated account cannot sign in", with the generic message
   })
 
-  test('a manager cannot hand out a role they do not hold themselves', async ({ page }) => {
+  test('a manager cannot touch someone who can do more than they can, nor hand out a role they do not hold', async ({ page }) => {
     await openAccess(page)
     await page.locator('#pm-access-support').selectOption('manage')
     await save(page).click()
@@ -328,12 +328,15 @@ test.describe('a change takes effect for the next person', () => {
     await switchTo(page, accounts.support)
     await menuLinks(page).filter({ hasText: 'Access control' }).click()
     await expect(rows(page)).toHaveCount(5)
-    await expect(roleSelect(page, 'u4')).toBeEnabled()
-    await roleSelect(page, 'u4').selectOption('admin')
-    const dialog = confirm(page, 'Change Liam Carter to Super admin?')
-    await dialog.getByRole('button', { name: 'Change role' }).click()
-    await expect(dialog.getByRole('alert')).toContainText('You cannot grant what you do not hold yourself')
-    await dialog.getByRole('button', { name: 'Cancel' }).click()
-    await expect(roleSelect(page, 'u4')).toHaveValue('auditor')
+    // Out of reach: Dana (Super admin), Priya (Billing manager) and Liam (Auditor) hold permissions Omar lacks.
+    for (const id of ['u1', 'u3', 'u4']) {
+      await expect(roleSelect(page, id)).toBeDisabled()
+      await expect(page.locator(`tr[data-staff="${id}"]`).getByRole('button')).toHaveCount(0)
+    }
+    // Within reach: Sofia is a Support lead too. Omar still cannot make her a Super admin, which he is not.
+    await expect(roleSelect(page, 'u5')).toBeEnabled()
+    await roleSelect(page, 'u5').selectOption('admin')
+    await expect(page.getByRole('alert')).toContainText('You cannot grant what you do not hold yourself')
+    await expect(roleSelect(page, 'u5')).toHaveValue('support')
   })
 })

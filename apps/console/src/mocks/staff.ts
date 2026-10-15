@@ -146,6 +146,18 @@ function escalation(missing: PermissionKey[]) {
   })
 }
 
+/** What the person being changed can do that the actor cannot: why the actor is outranked. */
+function outranked(actor: SeedStaff, target: SeedStaff): Failure | null {
+  const missing = missingFor(actor, permissions[target.role])
+  if (missing.length === 0) return null
+  return failure({
+    status: 409,
+    slug: ACCESS_PROBLEM.outranked,
+    title: 'Not allowed',
+    detail: `${target.name} can do things you cannot (${missing.join(', ')}). Only someone who holds all of them can change this person.`,
+  })
+}
+
 const selfLockout = (detail: string) => failure({ status: 409, slug: ACCESS_PROBLEM.selfLockout, title: 'Not allowed', detail })
 
 /** Active people who hold access.manage, given the roles' permissions as they would be. */
@@ -272,7 +284,7 @@ export function activateInvited(person: SeedStaff) {
 // --- change a person ---------------------------------------------------------------------------
 
 /**
- * PATCH /staff/{id}. Order: 404, 400, stale version (409), no change (200), then the safety rules:
+ * PATCH /staff/{id}. Order: 404, 400, stale version (409), outranked, no change (200), then the safety rules:
  * self lockout, escalation, last admin. A role change or a disable ends that person's sessions.
  */
 export function updateStaff(actor: SeedStaff, id: string, body: unknown): Outcome<StaffMember> {
@@ -288,6 +300,8 @@ export function updateStaff(actor: SeedStaff, id: string, body: unknown): Outcom
   if (!isVersion(raw.version)) errors.version = ['Send the version you loaded.']
   if (Object.keys(errors).length) return invalid(errors)
   if (raw.version !== person.version) return stale('person')
+  const above = outranked(actor, person)
+  if (above) return above
 
   const input = raw as unknown as UpdateStaffInput
   const newRole = input.role ?? person.role
@@ -338,6 +352,8 @@ export function removeStaff(actor: SeedStaff, id: string, version: string | null
   const sent = version !== null && /^\d+$/.test(version) ? Number(version) : NaN
   if (!isVersion(sent)) return invalid({ version: ['Send the version you loaded.'] })
   if (sent !== person.version) return stale('person')
+  const above = outranked(actor, person)
+  if (above) return above
 
   if (person.id === actor.id) return selfLockout('You cannot remove your own access to Access control. Ask another Super admin to do it.')
 

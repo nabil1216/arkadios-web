@@ -379,9 +379,13 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   | `access/self-lockout` | A person changes their own role to one without `access.manage`, or disables or removes themselves, or edits their own role so that it loses `access.manage`. |
   | `access/last-admin` | The change would leave no **active** person with `access.manage`: demoting, disabling or removing the last one, or removing the key from a role when no active person would be left. An invited or deactivated person does not count. |
   | `access/last-manager-role` | The change would leave no role that holds `access.manage`. |
+  | `access/outranked` | The person being changed (role change, disable, reactivate or remove) has a role that holds a permission the person making the change lacks. A manager can only change people whose role is within their own, so only a Super admin can touch a Super admin. `manage` covers `view`. The console hides those controls. |
   | `access/escalation` | The person making the change does not hold every key they would hand out: the keys of a role they assign (invite, change a role, reactivate), or a key they add to a role. `manage` covers `view`. |
   | `access/role-locked` | Editing the Super admin role. |
-  - Order of checks: `403`, `404`, `400`, stale `version`, self lockout, escalation, last admin, last manager role.
+  - Order of checks: `403`, `404`, `400`, stale `version`, outranked (a person change only), self lockout, escalation, last admin, last manager role.
+  - Outranked is about who is being changed, escalation is about what is being handed out: a Support lead with `access.manage` can
+    invite or move a colleague within the Support lead role, but not a Billing manager (outranked) and not into Super admin (escalation).
+    It looks at the target's current role, whatever their status. Resending an invitation is not a change to the person and is not checked.
   - Backend: the last-admin and last-manager checks must hold under concurrent requests, not only in a single request. Two admins
     demoting each other at the same moment would each pass a check made before the other commits, so do the check and the write in one
     serialized transaction. The self-lockout rule alone cannot stop that.

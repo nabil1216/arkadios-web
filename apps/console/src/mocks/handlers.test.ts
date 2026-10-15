@@ -902,12 +902,28 @@ describe('Access control endpoints', () => {
     it('names escalation when a manager grants a role they do not hold', async () => {
       const { permissions } = await import('./db')
       permissions.support = [...permissions.support, 'access.manage'] // resetMockStaff puts it back
-      const body = await expectProblem(await send('PATCH', '/staff/u4', as('u2'), { role: 'admin', version: 1 }), 409)
+      const body = await expectProblem(await send('PATCH', '/staff/u5', as('u2'), { role: 'admin', version: 1 }), 409) // Sofia is a Support lead
       expect(body.type).toContain('access/escalation')
       const role = await expectProblem(await send('PUT', '/roles/auditor/permissions', as('u2'), { permissions: ['tenants.manage'], version: 1 }), 409)
       expect(role.type).toContain('access/escalation')
       const invite = await expectProblem(await send('POST', '/staff', as('u2'), { name: 'Test Person', email: 'test.person@platform.example', role: 'admin' }), 409)
       expect(invite.type).toContain('access/escalation')
+    })
+
+    it('names outranked when a manager changes someone who can do more than they can', async () => {
+      const { permissions } = await import('./db')
+      permissions.support = [...permissions.support, 'access.manage']
+      for (const [method, path, body] of [
+        ['PATCH', '/staff/u1', { role: 'support', version: 1 }],
+        ['PATCH', '/staff/u1', { status: 'deactivated', version: 1 }],
+        ['DELETE', '/staff/u3?version=1', undefined],
+      ] as const) {
+        const problem = await expectProblem(await send(method, path, as('u2'), body), 409)
+        expect(problem.type, path).toContain('access/outranked')
+        expect(problem.detail).toContain('can do things you cannot')
+      }
+      expect((await list()).find((m) => m.id === 'u1')).toMatchObject({ role: 'admin', status: 'active' })
+      expect(platformAuditLog()).toEqual([])
     })
 
     it('says the Super admin role is locked', async () => {
