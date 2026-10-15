@@ -158,6 +158,18 @@ function outranked(actor: SeedStaff, target: SeedStaff): Failure | null {
   })
 }
 
+/** The same rule for a role: one that holds a permission the actor lacks is out of reach, checked as it is before the edit. */
+function roleOutranked(actor: SeedStaff, role: Role): Failure | null {
+  const missing = missingFor(actor, permissions[role])
+  if (missing.length === 0) return null
+  return failure({
+    status: 409,
+    slug: ACCESS_PROBLEM.outranked,
+    title: 'Not allowed',
+    detail: `The ${ROLE_LABELS[role]} role can do things you cannot (${missing.join(', ')}). Only someone who holds all of them can change what it can do.`,
+  })
+}
+
 const selfLockout = (detail: string) => failure({ status: 409, slug: ACCESS_PROBLEM.selfLockout, title: 'Not allowed', detail })
 
 /** Active people who hold access.manage, given the roles' permissions as they would be. */
@@ -375,7 +387,7 @@ export function removeStaff(actor: SeedStaff, id: string, version: string | null
 // --- role permissions --------------------------------------------------------------------------
 
 /**
- * PUT /roles/{role}/permissions. Order: 404, locked role (409), 400, stale version (409), self lockout,
+ * PUT /roles/{role}/permissions. Order: 404, locked role (409), 400, stale version (409), outranked, self lockout,
  * escalation, last manager role, last admin. Permissions are not in the token, so nobody is signed out:
  * the cached map is evicted and the next request resolves the new keys.
  */
@@ -396,6 +408,8 @@ export function updateRole(actor: SeedStaff, id: string, body: unknown): Outcome
   if (!isVersion(raw.version)) errors.version = ['Send the version you loaded.']
   if (Object.keys(errors).length) return invalid(errors)
   if (raw.version !== versionOfRole[id]) return stale('role')
+  const above = roleOutranked(actor, id)
+  if (above) return above
 
   const input = raw as unknown as UpdateRoleInput
   const next = canonical(input.permissions)

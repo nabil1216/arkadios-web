@@ -25,10 +25,12 @@ interface RolesMatrixProps {
   /** Without access.manage, or while a save runs, every select is off. */
   readOnly?: boolean
   onLevel?: (roleId: string, area: Area, level: Level) => void
+  /** False for a role that holds a permission the signed-in role lacks: its column is read only. Defaults to editable. */
+  editable?: (role: RoleInfo) => boolean
 }
 
 /** The demo's matrix: areas down the side, roles across the top, what each role can do in each area. */
-export function RolesMatrix({ roles, drafts, readOnly = true, onLevel }: RolesMatrixProps) {
+export function RolesMatrix({ roles, drafts, readOnly = true, onLevel, editable = () => true }: RolesMatrixProps) {
   return (
     <div className="overflow-x-auto" aria-busy={!roles}>
       <Table className="text-[13.5px]">
@@ -42,7 +44,11 @@ export function RolesMatrix({ roles, drafts, readOnly = true, onLevel }: RolesMa
                   <TableHead key={role.id} scope="col" className={COLUMN}>
                     <span className="block text-[14.5px] text-ink">{role.name}</span>
                     <span className="block text-[12.5px] font-normal text-ink-2">{people(role.staffCount)}</span>
-                    {role.locked ? <span className="block text-[12.5px] font-normal text-ink-2">Locked</span> : null}
+                    {role.locked ? (
+                      <span className="block text-[12.5px] font-normal text-ink-2">Locked</span>
+                    ) : !readOnly && !editable(role) ? (
+                      <span className="block text-[12.5px] font-normal text-ink-2">Read only: can do more than you</span>
+                    ) : null}
                   </TableHead>
                 ))
               : [0, 1, 2, 3].map((i) => (
@@ -67,8 +73,8 @@ export function RolesMatrix({ roles, drafts, readOnly = true, onLevel }: RolesMa
                         data-area={area}
                         data-role={role.id}
                         value={drafts?.[role.id]?.[area] ?? levelOfKeys(role.permissions, area)}
-                        // The Super admin column is locked for everyone.
-                        disabled={readOnly || role.locked}
+                        // The Super admin column is locked for everyone, and a role above the signed-in role is out of reach.
+                        disabled={readOnly || role.locked || !editable(role)}
                         onChange={(e) => onLevel?.(role.id, area, e.target.value as Level)}
                         className="mx-auto w-[130px]"
                       >

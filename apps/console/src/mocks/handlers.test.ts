@@ -904,7 +904,8 @@ describe('Access control endpoints', () => {
       permissions.support = [...permissions.support, 'access.manage'] // resetMockStaff puts it back
       const body = await expectProblem(await send('PATCH', '/staff/u5', as('u2'), { role: 'admin', version: 1 }), 409) // Sofia is a Support lead
       expect(body.type).toContain('access/escalation')
-      const role = await expectProblem(await send('PUT', '/roles/auditor/permissions', as('u2'), { permissions: ['tenants.manage'], version: 1 }), 409)
+      const grantsTenants = [...permissions.support, 'tenants.manage']
+      const role = await expectProblem(await send('PUT', '/roles/support/permissions', as('u2'), { permissions: grantsTenants, version: 1 }), 409)
       expect(role.type).toContain('access/escalation')
       const invite = await expectProblem(await send('POST', '/staff', as('u2'), { name: 'Test Person', email: 'test.person@platform.example', role: 'admin' }), 409)
       expect(invite.type).toContain('access/escalation')
@@ -923,6 +924,18 @@ describe('Access control endpoints', () => {
         expect(problem.detail).toContain('can do things you cannot')
       }
       expect((await list()).find((m) => m.id === 'u1')).toMatchObject({ role: 'admin', status: 'active' })
+      expect(platformAuditLog()).toEqual([])
+    })
+
+    it('names outranked when a manager edits a role that holds more than they do', async () => {
+      const { permissions } = await import('./db')
+      permissions.support = [...permissions.support, 'access.manage']
+      for (const role of ['billing', 'auditor']) {
+        const problem = await expectProblem(await send('PUT', `/roles/${role}/permissions`, as('u2'), { permissions: ['tenants.view'], version: 1 }), 409)
+        expect(problem.type, role).toContain('access/outranked')
+        expect(problem.detail).toContain('role can do things you cannot')
+      }
+      expect(permissions.billing).toContain('billing.manage')
       expect(platformAuditLog()).toEqual([])
     })
 

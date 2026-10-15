@@ -318,7 +318,7 @@ test.describe('a change takes effect for the next person', () => {
     await expect(page.getByText('Incorrect email or password.')).toBeVisible() // ptest3: "deactivated account cannot sign in", with the generic message
   })
 
-  test('a manager cannot touch someone who can do more than they can, and is only offered roles they may hand out', async ({ page }) => {
+  test('a manager cannot touch people or roles that can do more than they can, and is only offered roles they may hand out', async ({ page }) => {
     await openAccess(page)
     await page.locator('#pm-access-support').selectOption('manage')
     await save(page).click()
@@ -339,6 +339,13 @@ test.describe('a change takes effect for the next person', () => {
     await expect(roleSelect(page, 'u1').locator('option')).toHaveText(['Super admin']) // out of reach: just their own role
     await page.getByRole('button', { name: 'Invite staff member' }).click()
     await expect(page.getByRole('dialog', { name: 'Invite a staff member' }).getByLabel('Role').locator('option')).toHaveText(['Support lead'])
+    await page.keyboard.press('Escape')
+    // The same for roles: Billing manager and Auditor hold permissions Omar lacks, so their columns are read only. His own is not.
+    for (const role of ['billing', 'auditor']) {
+      await expect(page.locator(`#pm-tenants-${role}`)).toBeDisabled()
+      await expect(page.getByRole('columnheader', { name: new RegExp(role === 'billing' ? 'Billing manager' : 'Auditor') })).toContainText('Read only: can do more than you')
+    }
+    await expect(page.locator('#pm-tenants-support')).toBeEnabled()
   })
 })
 

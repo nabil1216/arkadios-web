@@ -399,12 +399,12 @@ describe('what each role can do', () => {
     expect(failed(updateRole(dana(), 'owner', { permissions: [], version: 1 })).status).toBe(404)
   })
 
-  it('refuses to grant a key the editor does not hold (escalation)', () => {
+  it('refuses to grant a key the editor does not hold (escalation), on a role the editor holds in full', () => {
     supportCanManageAccess()
-    const result = failed(updateRole(omar(), 'auditor', { permissions: [...permissions.auditor, 'tenants.manage'], version: 1 }))
+    const result = failed(updateRole(omar(), 'support', { permissions: [...permissions.support, 'tenants.manage'], version: 1 }))
     expect(result).toMatchObject({ status: 409, slug: ACCESS_PROBLEM.escalation })
-    expect(permissions.auditor).not.toContain('tenants.manage')
-    succeeded(updateRole(omar(), 'auditor', { permissions: [...permissions.auditor, 'sms.manage'], version: 1 })) // Omar holds sms.manage
+    expect(permissions.support).not.toContain('tenants.manage')
+    succeeded(updateRole(omar(), 'support', { permissions: permissions.support.filter((k) => k !== 'billing.view'), version: 1 })) // taking away is fine
   })
 
   it('may grant access.manage to a role only if the editor holds it', () => {
@@ -412,15 +412,10 @@ describe('what each role can do', () => {
     expect(role('billing').permissions).toContain('access.manage')
   })
 
-  describe('the last role that holds access.manage (forced: the locked Super admin role normally keeps it)', () => {
-    it('cannot lose it', () => {
-      permissions.admin = permissions.admin.filter((k) => k !== 'access.manage')
-      permissions.support = [...permissions.support, 'access.manage']
-      const result = failed(updateRole(dana(), 'support', { permissions: ['tenants.view'], version: 1 }))
-      expect(result).toMatchObject({ status: 409, slug: ACCESS_PROBLEM.lastManagerRole })
-      expect(role('support').permissions).toContain('access.manage')
-    })
-
+  describe('the last person holding access.manage, by editing a role (a request that raced with another change)', () => {
+    // access/last-manager-role cannot be reached here any more: to remove access.manage from a role the editor must hold it
+    // (outranked), and then the editor's own role keeps it, or the editor is editing that role (self lockout). It stays in the
+    // server as the check inside the transaction (docs/ARCHITECTURE.md), which no single request can reach on its own.
     it('cannot lose it when no active person would be left holding it', () => {
       // Dana (Super admin) was disabled while her request to edit the Support role was in flight.
       permissions.support = [...permissions.support, 'access.manage']
@@ -429,5 +424,54 @@ describe('what each role can do', () => {
       expect(result).toMatchObject({ status: 409, slug: ACCESS_PROBLEM.lastAdmin })
       expect(role('support').permissions).toContain('access.manage')
     })
+  })
+})
+
+describe('safety: outranked, for roles', () => {
+  const OUT = { status: 409, slug: ACCESS_PROBLEM.outranked }
+  beforeEach(supportCanManageAccess) // Omar manages access, but is not a Super admin
+
+  it('a manager cannot change the permissions of a role that holds a permission they lack', () => {
+    for (const id of ['billing', 'auditor'] as const) {
+      const result = failed(updateRole(omar(), id, { permissions: ['tenants.view'], version: 1 }))
+      expect(result, id).toMatchObject(OUT)
+    }
+    expect(permissions.billing).toContain('billing.manage')
+    expect(permissions.auditor).toContain('transactions.view')
+    expect(platformAuditLog()).toEqual([])
+  })
+
+  it('names the role and what it can do that the editor cannot', () => {
+    const result = failed(updateRole(omar(), 'billing', { permissions: ['tenants.view'], version: 1 }))
+    expect(result.detail).toContain('The Billing manager role can do things you cannot')
+    expect(result.detail).toContain('transactions.manage')
+    expect(result.detail).not.toContain('plans.view') // Omar holds that
+  })
+
+  it('looks at the role as it is before the edit, so taking everything away does not get round it', () => {
+    expect(failed(updateRole(omar(), 'billing', { permissions: [], version: 1 }))).toMatchObject(OUT)
+    expect(failed(updateRole(omar(), 'auditor', { permissions: [...permissions.auditor], version: 1 }))).toMatchObject(OUT) // even a no-op
+  })
+
+  it('checks a stale version first, so the editor reloads and sees why', () => {
+    expect(failed(updateRole(omar(), 'billing', { permissions: [], version: 9 })).errors).toHaveProperty('version')
+  })
+
+  it('checks the 400s first', () => {
+    expect(failed(updateRole(omar(), 'billing', { permissions: 'x', version: 1 })).status).toBe(400)
+  })
+
+  it('lets a manager edit a role they hold in full, and a Super admin edit any role but their own locked one', () => {
+    succeeded(updateRole(omar(), 'support', { permissions: permissions.support.filter((k) => k !== 'billing.view'), version: 1 }))
+    succeeded(updateRole(dana(), 'billing', { permissions: ['tenants.view'], version: 1 }))
+    succeeded(updateRole(dana(), 'auditor', { permissions: ['tenants.view'], version: 1 }))
+    expect(failed(updateRole(dana(), 'admin', { permissions: [], version: 1 })).slug).toBe(ACCESS_PROBLEM.roleLocked)
+  })
+
+  it('lets a role that holds a lower role in full edit it, with manage covering view', () => {
+    permissions.billing = [...permissions.billing, 'access.manage']
+    permissions.auditor = ['tenants.view', 'billing.view']
+    const billingManager = { ...omar(), role: 'billing' as const }
+    succeeded(updateRole(billingManager, 'auditor', { permissions: ['tenants.view'], version: 1 }))
   })
 })

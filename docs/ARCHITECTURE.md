@@ -379,11 +379,14 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   | `access/self-lockout` | A person changes their own role to one without `access.manage`, or disables or removes themselves, or edits their own role so that it loses `access.manage`. |
   | `access/last-admin` | The change would leave no **active** person with `access.manage`: demoting, disabling or removing the last one, or removing the key from a role when no active person would be left. An invited or deactivated person does not count. |
   | `access/last-manager-role` | The change would leave no role that holds `access.manage`. |
-  | `access/outranked` | The person being changed (role change, disable, reactivate or remove) has a role that holds a permission the person making the change lacks. A manager can only change people whose role is within their own, so only a Super admin can touch a Super admin. `manage` covers `view`. The console hides those controls. |
+  | `access/outranked` | The target of the change holds a permission the person making it lacks. For a person (role change, disable, reactivate, remove) the target is their current role; for `PUT /roles/{role}/permissions` it is the role being edited, as it is before the edit. A manager can only change people and roles that are within their own, so only a Super admin can touch a Super admin (the Super admin role itself is locked for everyone: `access/role-locked`). `manage` covers `view`. The console hides those controls and shows such a role's column read only. |
   | `access/escalation` | The person making the change does not hold every key they would hand out: the keys of a role they assign (invite, change a role, reactivate), or a key they add to a role. `manage` covers `view`. |
   | `access/role-locked` | Editing the Super admin role. |
-  - Order of checks: `403`, `404`, `400`, stale `version`, outranked (a person change only), self lockout, escalation, last admin, last manager role.
-  - Outranked is about who is being changed, escalation is about what is being handed out: a Support lead with `access.manage` can
+  - Order of checks: `403`, `404`, `400`, stale `version`, outranked (a person or a role), self lockout, escalation, last admin, last manager role.
+  - Outranked is about who or what is being changed, escalation is about what is being handed out. For a role it means a Support lead
+    with `access.manage` cannot edit the Billing manager role (it holds `billing.manage`, which they lack), and can edit the Support lead role but
+    not grant it a key they lack (escalation). It checks the role's permissions before the edit, so lowering them does not get round it.
+    For a person: a Support lead with `access.manage` can
     invite or move a colleague within the Support lead role, but not a Billing manager (outranked) and not into Super admin (escalation).
     It looks at the target's current role, whatever their status. Resending an invitation is not a change to the person and is not checked.
   - Backend: the `access/last-admin` and `access/last-manager-role` checks must run **inside the same database transaction as the
@@ -463,6 +466,7 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
 - Tenant isolation: two tenants, tenant A's token can never read tenant B's data. Runs in CI forever.
 - Architecture tests (NetArchTest): Domain references nothing; Application references only Domain; Api never touches DbContext directly.
 - Permission tests: every endpoint rejects a user without the permission.
+- outranked checks apply to people and to roles
 
 ## 13. Open decisions
 

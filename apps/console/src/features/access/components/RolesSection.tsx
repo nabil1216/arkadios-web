@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useSession } from '@/features/auth/hooks/session'
 import { Can } from '@/features/auth/components/Can'
 import { permissionsKey } from '@/features/auth/api/permissions'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
@@ -9,6 +10,7 @@ import { accessErrorText, isStale } from '../api/problems'
 import { accessKey, rolesKey, updateRolePermissions } from '../api/access'
 import type { RoleInfo, RoleList } from '../api/types'
 import { rolesConfirmCopy, type RoleChange } from '../hooks/roleDraft'
+import { canChangeRole } from '../hooks/outranks'
 import { useRoleDrafts } from '../hooks/useRoleDrafts'
 import { ConfirmDialog } from './ConfirmDialog'
 import { Panel } from './Panel'
@@ -47,6 +49,8 @@ interface RolesSectionProps {
 export function RolesSection({ roles, canManage }: RolesSectionProps) {
   const queryClient = useQueryClient()
   const guard = useSubmitGuard()
+  const session = useSession()
+  const actorRole = session.status === 'authenticated' ? session.user.role : undefined
   const { drafts, changes, dirty, setLevel, discard } = useRoleDrafts(roles)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [problems, setProblems] = useState<Array<{ text: string; conflict: boolean }>>([])
@@ -124,7 +128,10 @@ export function RolesSection({ roles, canManage }: RolesSectionProps) {
           ) : null}
         </div>
       ) : null}
-      <RolesMatrix roles={roles} drafts={drafts} readOnly={!canManage || save.isPending} onLevel={setLevel} />
+      <RolesMatrix roles={roles} drafts={drafts} readOnly={!canManage || save.isPending}
+        onLevel={setLevel}
+        editable={(role) => canChangeRole(roles, actorRole, role.id)}
+      />
       <ConfirmDialog
         copy={confirmOpen ? copy : null}
         onCancel={() => setConfirmOpen(false)}

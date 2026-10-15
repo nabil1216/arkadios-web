@@ -35,6 +35,7 @@ afterEach(() => {
   toast.dismiss() // sonner keeps its toasts between tests
 })
 
+const seedSupport = [...permissions.support]
 let currentRole: Role = 'admin'
 
 function open(role: Role = 'admin') {
@@ -317,6 +318,57 @@ describe('role matrix: handing out access.manage asks first', () => {
   })
 })
 
+describe('role matrix: a role above yours is read only', () => {
+  beforeEach(() => {
+    permissions.support = [...permissions.support, 'access.manage'] // Omar manages access, but is not a Super admin
+  })
+
+  it('turns off the columns of roles that hold a permission you lack, and says why', async () => {
+    open('support')
+    await loaded()
+    for (const role of ['Billing manager', 'Auditor']) {
+      expect(cell('Tenants', role), role).toBeDisabled()
+      expect(screen.getByRole('columnheader', { name: new RegExp(role) })).toHaveTextContent('Read only: can do more than you')
+    }
+    expect(screen.getByRole('columnheader', { name: /Super admin/ })).toHaveTextContent('Locked')
+    expect(screen.getByRole('columnheader', { name: /Super admin/ })).not.toHaveTextContent('Read only')
+  })
+
+  it('keeps your own role\'s column editable', async () => {
+    open('support')
+    await loaded()
+    expect(cell('Tenants', 'Support lead')).toBeEnabled()
+    expect(screen.getByRole('columnheader', { name: /Support lead/ })).not.toHaveTextContent('Read only')
+  })
+
+  it('leaves a Super admin every column but the locked one', async () => {
+    open()
+    await loaded()
+    expect(cell('Tenants', 'Billing manager')).toBeEnabled()
+    expect(cell('Tenants', 'Auditor')).toBeEnabled()
+    expect(screen.queryByText('Read only: can do more than you')).not.toBeInTheDocument()
+  })
+
+  it('does not add the note for a read-only caller, whose whole matrix is off anyway', async () => {
+    open('auditor')
+    await loaded()
+    await waitFor(() => expect(cell('Billing', 'Support lead')).toBeDisabled())
+    expect(screen.queryByText('Read only: can do more than you')).not.toBeInTheDocument()
+  })
+
+  it('shows the server\'s sentence if it refuses anyway (the matrix was out of date)', async () => {
+    permissions.support = permissions.admin // the console is told Support lead holds everything, so it offers every column
+    const user = userEvent.setup()
+    open('support')
+    await loaded()
+    permissions.support = [...seedSupport, 'access.manage'] // ...then the server's data moves back
+    await user.selectOptions(cell('Tenants', 'Billing manager'), 'none')
+    await user.click(save())
+    await user.click(within(await dialog()).getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/Billing manager: The Billing manager role can do things you cannot/)).toBeInTheDocument()
+  })
+})
+
 describe('role matrix: when the server says no', () => {
   it('shows the server\'s sentence when a role would be the last to hold access.manage, and keeps the edit', async () => {
     server.use(
@@ -335,16 +387,16 @@ describe('role matrix: when the server says no', () => {
     expect(cell('Access control', 'Auditor')).toHaveValue('manage')
   })
 
-  it('refuses to hand out a key the editor does not hold (escalation), from the real rules', async () => {
+  it('refuses to hand out a key the editor does not hold (escalation), on a role the editor holds in full', async () => {
     permissions.support = [...permissions.support, 'access.manage'] // Omar manages access but cannot change tenants
     const user = userEvent.setup()
     open('support')
     await loaded()
-    await user.selectOptions(cell('Tenants', 'Auditor'), 'manage')
+    await user.selectOptions(cell('Tenants', 'Support lead'), 'manage')
     await user.click(save())
-    const alert = await screen.findByText(/Auditor: You cannot grant what you do not hold yourself/)
+    const alert = await screen.findByText(/Support lead: You cannot grant what you do not hold yourself/)
     expect(alert.closest('[role="alert"]')).toBeInTheDocument()
-    expect(permissions.auditor).not.toContain('tenants.manage')
+    expect(permissions.support).not.toContain('tenants.manage')
     expect(platformAuditLog()).toEqual([])
   })
 
@@ -370,7 +422,7 @@ describe('role matrix: when the server says no', () => {
         served += 1
         return HttpResponse.json({
           items: [
-            { id: 'admin', name: 'Super admin', locked: true, permissions: ['access.manage'], staffCount: 1, version: 1 },
+            { id: 'admin', name: 'Super admin', locked: true, permissions: ['tenants.manage', 'sms.manage', 'access.manage'], staffCount: 1, version: 1 },
             { id: 'billing', name: 'Billing manager', locked: false, permissions: served > 1 ? ['sms.manage'] : ['sms.view'], staffCount: 1, version: served },
           ],
         })
