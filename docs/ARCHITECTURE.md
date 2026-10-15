@@ -386,9 +386,15 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   - Outranked is about who is being changed, escalation is about what is being handed out: a Support lead with `access.manage` can
     invite or move a colleague within the Support lead role, but not a Billing manager (outranked) and not into Super admin (escalation).
     It looks at the target's current role, whatever their status. Resending an invitation is not a change to the person and is not checked.
-  - Backend: the last-admin and last-manager checks must hold under concurrent requests, not only in a single request. Two admins
-    demoting each other at the same moment would each pass a check made before the other commits, so do the check and the write in one
-    serialized transaction. The self-lockout rule alone cannot stop that.
+  - Backend: the `access/last-admin` and `access/last-manager-role` checks must run **inside the same database transaction as the
+    write**, with the rows they read locked (a row lock) or under `SERIALIZABLE` isolation (SQL Server: `UPDLOCK, HOLDLOCK` on the
+    rows that hold `access.manage`, or `SERIALIZABLE` for the whole unit of work). The transaction reads who is left holding
+    `access.manage` after the change, refuses with `409` if that is nobody, writes the change and the audit entry, and commits.
+    Two admins demoting each other at the same moment then run one after the other: the second sees the first's result and gets
+    the `409`, instead of both reading "there is another admin" and both succeeding. A check made before the transaction, in the
+    handler or against the permission cache, is not enough, and neither is the optimistic `version`, which is per row and does not
+    see the other row. The same goes for editing a role's permissions. An integration test should fire the two demotions
+    together and expect exactly one success and one `409`.
 - Backend notes:
   - **Takes effect at once.** A role change, a disable and a removal revoke that person's refresh tokens, bump their security stamp, and
     evict their cached permission map. An access token carrying the old stamp is refused on its next request (`401`), so the console
