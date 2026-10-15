@@ -4,7 +4,7 @@
 // and no inactivity select; a role change, a deactivation and a removal ask first; and "persist after
 // reload" is ported as navigate away and back, because the mock API keeps its data in the page.
 import { expect, test, type Page } from '@playwright/test'
-import { accounts, menuLinks, menus, openPath, pageErrors, signIn, switchTo, type Account } from './helpers.ts'
+import { accounts, menuLinks, menus, openPath, overlayBeforeContent, pageErrors, pressWithKeyboard, signIn, slowContentFade, switchTo, type Account } from './helpers.ts'
 
 const rows = (page: Page) => page.locator('tr[data-staff]')
 const roleSelect = (page: Page, id: string) => page.locator(`#role-${id}`)
@@ -338,5 +338,21 @@ test.describe('a change takes effect for the next person', () => {
     await roleSelect(page, 'u5').selectOption('admin')
     await expect(page.getByRole('alert')).toContainText('You cannot grant what you do not hold yourself')
     await expect(roleSelect(page, 'u5')).toHaveValue('support')
+  })
+})
+
+test.describe('reopening a dialog while it fades out', () => {
+  test('the role matrix question reopens with its overlay behind it and takes clicks', async ({ page }) => {
+    await openAccess(page)
+    await slowContentFade(page)
+    await page.locator('#pm-billing-support').selectOption('none')
+    await save(page).click()
+    const dialog = confirm(page, 'Take permissions away from these roles?')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.locator('[data-slot="alert-dialog-overlay"]')).toHaveCount(0)
+    await pressWithKeyboard(save(page))
+    await expect.poll(() => overlayBeforeContent(page, 'alert-dialog')).toBe(true)
+    await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 2000 })
+    await expect(dialog).toBeHidden()
   })
 })

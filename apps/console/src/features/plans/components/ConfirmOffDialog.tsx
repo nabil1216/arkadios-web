@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { useReopenKey } from '@/lib/useReopenKey'
 import type { OffSummary } from '../hooks/planDraft'
 
 const tenants = (n: number) => `${n} ${n === 1 ? 'tenant' : 'tenants'}`
@@ -21,8 +22,10 @@ interface ConfirmOffDialogProps {
 
 /** Shown before a save that switches modules off on plans that have tenants. Switching on never asks. */
 export function ConfirmOffDialog({ open, summaries, onCancel, onConfirm }: ConfirmOffDialogProps) {
+  // A fresh dialog on every opening: reopening while the last one fades out would put its overlay over its content.
+  const reopenKey = useReopenKey(open)
   return (
-    <AlertDialog open={open} onOpenChange={(next) => !next && onCancel()}>
+    <AlertDialog key={reopenKey} open={open} onOpenChange={(next) => !next && onCancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="font-display text-[22px] font-medium">Switch modules off for existing tenants?</AlertDialogTitle>

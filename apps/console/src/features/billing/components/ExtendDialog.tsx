@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ApiError } from '@/lib/api'
 import { formatDate, formatMonthLong } from '@/lib/format'
+import { useReopenKey } from '@/lib/useReopenKey'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { billsKey, extendBill } from '../api/bills'
 import type { Bill, ExtendDays } from '../api/types'
@@ -25,6 +26,8 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
   // Extending is not idempotent and the button only turns off after the next render: the guard
   // is set in the click handler itself, so a fast double click sends one request.
   const guard = useSubmitGuard()
+  // A fresh dialog on every opening: reopening while the last one fades out would put its overlay over its content.
+  const reopenKey = useReopenKey(bill !== null)
 
   const extend = useMutation({
     mutationFn: ({ id, days }: { id: string; days: ExtendDays }) => extendBill(id, { days }),
@@ -54,6 +57,7 @@ export function ExtendDialog({ bill, onClose }: ExtendDialogProps) {
 
   return (
     <Dialog
+      key={reopenKey}
       open={bill !== null}
       onOpenChange={(open) => {
         // Not while the request is running: closing would hide whether it went through.

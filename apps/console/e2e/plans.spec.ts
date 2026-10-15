@@ -2,7 +2,7 @@
 // console_ptest3.py ("plans are view only"). The demo's "plans persist after reload" is ported as
 // navigate away and back: the mock API keeps its data in the page, so a full reload would reset it.
 import { expect, test, type Page } from '@playwright/test'
-import { accounts, menuLinks, signIn, type Account } from './helpers.ts'
+import { accounts, menuLinks, overlayBeforeContent, pressWithKeyboard, signIn, slowContentFade, type Account } from './helpers.ts'
 
 const save = (page: Page) => page.locator('#pl-save')
 const discard = (page: Page) => page.locator('#pl-discard')
@@ -253,5 +253,22 @@ test.describe('plans and the rest of the console', () => {
     await goTo(page, 'Plans and modules', 'Plans and modules')
     await expect(page.getByRole('columnheader', { name: /Enterprise/ })).toContainText('3 tenants')
     await expect(page.getByRole('columnheader', { name: /Professional/ })).toContainText('3 tenants')
+  })
+})
+
+test.describe('reopening a dialog while it fades out', () => {
+  test('the switch-off question reopens with its overlay behind it and takes clicks', async ({ page }) => {
+    await openPlans(page)
+    await slowContentFade(page)
+    await sw(page, 'reports', 'professional').uncheck()
+    await save(page).click()
+    const dialog = confirmDialog(page)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    // The overlay has faded out and was removed; the content is still fading for 3s.
+    await expect(page.locator('[data-slot="alert-dialog-overlay"]')).toHaveCount(0)
+    await pressWithKeyboard(save(page))
+    await expect.poll(() => overlayBeforeContent(page, 'alert-dialog')).toBe(true)
+    await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 2000 })
+    await expect(dialog).toBeHidden()
   })
 })

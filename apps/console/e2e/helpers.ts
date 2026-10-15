@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 export const PASSWORD = 'demo-1234'
 export const CODE = '123456'
@@ -61,4 +61,34 @@ export function pageErrors(page: Page) {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   return errors
+}
+
+/**
+ * Radix fades a dialog's overlay (150ms) and its content (200ms) out separately. This stretches the content's fade
+ * to 3s and leaves the overlay alone, so "the overlay is gone, the content is still there" lasts long enough to
+ * reopen the dialog inside it, every time, instead of by luck.
+ */
+export async function slowContentFade(page: Page) {
+  await page.addStyleTag({
+    content: '[data-slot="dialog-content"][data-state="closed"], [data-slot="alert-dialog-content"][data-state="closed"] { animation-duration: 3s !important; }',
+  })
+}
+
+/** True when the one open dialog has its overlay before its content, so the content sits on top and takes the clicks. */
+export function overlayBeforeContent(page: Page, slot: 'dialog' | 'alert-dialog') {
+  return page.evaluate((s) => {
+    const overlays = document.querySelectorAll(`[data-slot="${s}-overlay"]`)
+    const contents = document.querySelectorAll(`[data-slot="${s}-content"]`)
+    if (overlays.length !== 1 || contents.length !== 1) return false
+    return (overlays[0].compareDocumentPosition(contents[0]) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  }, slot)
+}
+
+/**
+ * Presses a button with the keyboard. While a modal dialog is still fading out the page behind it ignores the mouse,
+ * but a keypress still gets through, which is how a quick reopen reaches the dialog.
+ */
+export async function pressWithKeyboard(button: Locator) {
+  await button.focus()
+  await button.press('Enter')
 }

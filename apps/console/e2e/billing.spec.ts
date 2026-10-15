@@ -3,7 +3,7 @@
 // Pay now in the notice preview is labelled "Preview only" and does nothing (the demo showed a toast).
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
-import { accounts, menuLinks, signIn, type Account } from './helpers.ts'
+import { accounts, menuLinks, overlayBeforeContent, pressWithKeyboard, signIn, slowContentFade, type Account } from './helpers.ts'
 
 const rows = (page: Page) => page.locator('#b-body tr[data-id]')
 const tile = (page: Page, label: string) => page.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=..')
@@ -288,4 +288,22 @@ test.describe('who can do what', () => {
       await expect(page.getByRole('button', { name: /^Extend/ })).toHaveCount(0) // ptest3: "cannot extend deadlines"
     })
   }
+})
+
+test.describe('reopening a dialog while it fades out', () => {
+  test('Extend the deadline reopens with its overlay behind it and takes clicks', async ({ page }) => {
+    await openBilling(page)
+    await slowContentFade(page)
+    // By text, not by role: while a modal fades out the page behind it is aria-hidden, and a role locator would wait for it to go.
+    const opener = rows(page).filter({ hasText: 'Sterling Hollow Family Office' }).filter({ hasText: 'Overdue' }).locator('button', { hasText: 'Extend' })
+    await opener.click()
+    const extend = dialog(page, 'Extend the deadline')
+    await extend.getByRole('button', { name: 'Cancel' }).click()
+    // The overlay has faded out and was removed; the content is still fading for 3s.
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0)
+    await pressWithKeyboard(opener)
+    await expect.poll(() => overlayBeforeContent(page, 'dialog')).toBe(true)
+    await extend.getByRole('button', { name: 'Cancel' }).click({ timeout: 2000 })
+    await expect(extend).toBeHidden()
+  })
 })
