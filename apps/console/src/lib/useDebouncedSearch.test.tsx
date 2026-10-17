@@ -94,6 +94,16 @@ describe('useDebouncedSearch', () => {
     expect(onCommit).toHaveBeenLastCalledWith('northw')
   })
 
+  it('empties the box and drops a waiting search on reset', () => {
+    const { result, onCommit } = setup()
+    act(() => result.current.setText('north'))
+    act(() => result.current.reset())
+    expect(result.current.text).toBe('')
+    act(() => void vi.advanceTimersByTime(1000))
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(result.current.takePending()).toBeUndefined()
+  })
+
   it('stops waiting when the page goes away', () => {
     const { result, unmount, onCommit } = setup()
     act(() => result.current.setText('north'))

@@ -190,6 +190,26 @@ describe('SupportPage: the status filter and paging', () => {
   })
 })
 
+describe('SupportPage: the address keeps what was chosen', () => {
+  it('keeps the status when the page changes right after it, even from an earlier render\'s handler', async () => {
+    server.use(
+      http.get(`${API_BASE}/support-sessions`, ({ request }) => {
+        const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
+        const item = { id: `s${page}`, staffId: 'u2', staffName: 'Omar Haddad', tenantId: 't', tenantName: `Tenant ${page}`, tenantUserId: 'u', tenantUserName: 'User', reasonId: 'r', reason: 'A reason long enough to count', mode: 'read', durationMinutes: 30, startedAt: '2026-10-14T12:00:00Z', expiresAt: '2026-10-14T12:30:00Z', endedAt: '2026-10-14T12:10:00Z', status: 'ended', endedById: 'u2', endedByName: 'Omar Haddad' }
+        return HttpResponse.json({ items: [item], total: 80, page, pageSize: 25 })
+      }),
+    )
+    const user = userEvent.setup()
+    const { router } = open('support', '?status=ended')
+    await screen.findByRole('navigation', { name: 'Pages' })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.selectOptions(screen.getByLabelText('Filter by status'), 'revoked')
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ status: 'revoked' }) // a new filter starts at page 1
+    await user.click(await screen.findByRole('button', { name: 'Next' }))
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ status: 'revoked', page: '2' })
+  })
+})
+
 describe('SupportPage: read only', () => {
   it('shows an auditor the sessions and nothing to start or end', async () => {
     begin('u2', 'Northwind Advisory Group', 'Elena Marsh')

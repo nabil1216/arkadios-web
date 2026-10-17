@@ -9,7 +9,7 @@ export const SEARCH_DEBOUNCE_MS = 300
  *   is running that the page does not know about.
  * - `takePending` is for the other filters: when one changes while a search is waiting, it takes the search over (the
  *   timer is cancelled) so both are applied in one step, instead of two writes that could overwrite each other.
- * - `commit` applies the text now (Enter).
+ * - `commit` applies the text now (Enter); `reset` empties the box and drops a waiting search.
  * - When the address changes on its own (back button, "clear"), the box shows it and any waiting search is dropped.
  */
 export function useDebouncedSearch(committed: string, onCommit: (q: string) => void, delayMs = SEARCH_DEBOUNCE_MS) {
@@ -78,6 +78,13 @@ export function useDebouncedSearch(committed: string, onCommit: (q: string) => v
     if (typed.current.trim() !== committedRef.current) apply()
   }, [apply, cancel])
 
+  /** Empties the box and drops a waiting search. The caller clears the applied value itself. */
+  const reset = useCallback(() => {
+    cancel()
+    typed.current = ''
+    setTextState('')
+  }, [cancel])
+
   /** The text waiting to be applied, or undefined if none is. Taking it cancels the wait: the caller applies it. */
   const takePending = useCallback((): string | undefined => {
     if (timer.current === null) return undefined
@@ -87,5 +94,5 @@ export function useDebouncedSearch(committed: string, onCommit: (q: string) => v
     return q
   }, [cancel, markSent])
 
-  return { text, setText, commit, takePending }
+  return { text, setText, commit, takePending, reset }
 }

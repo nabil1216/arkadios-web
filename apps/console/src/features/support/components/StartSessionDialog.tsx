@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ApiError } from '@/lib/api'
+import { useDebouncedSearch } from '@/lib/useDebouncedSearch'
 import { useReopenKey } from '@/lib/useReopenKey'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { fetchSupportTenants, fetchSupportUsers, startSession, supportKey, supportTenantsKey, supportUsersKey } from '../api/support'
@@ -25,7 +26,6 @@ import { DurationChoice } from './DurationChoice'
 import { ModeChoice } from './ModeChoice'
 
 const FIELDS = ['tenantId', 'tenantUserId', 'reason', 'durationMinutes', 'mode'] as const
-const SEARCH_DEBOUNCE_MS = 300
 const EMPTY: StartValues = { tenantId: '', tenantUserId: '', reason: '', durationMinutes: DEFAULT_DURATION, mode: 'read' }
 
 interface StartSessionDialogProps {
@@ -51,7 +51,7 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
   const [confirming, setConfirming] = useState<StartValues | null>(null)
   const reopenKey = useReopenKey(open && !confirming)
 
-  const { register, handleSubmit, setValue, getValues, setError, setFocus, reset, control, formState: { errors } } = useForm<StartValues>({
+  const { register, handleSubmit, setValue, setError, setFocus, reset, control, formState: { errors } } = useForm<StartValues>({
     resolver: zodResolver(startSchema),
     defaultValues: EMPTY,
   })
@@ -63,9 +63,12 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
 
   const tenants = useQuery({ queryKey: supportTenantsKey(''), queryFn: () => fetchSupportTenants(''), enabled: open, staleTime: 0 })
   // The users of a tenant can be many: search them (once the typing pauses) and page through the matches.
-  const [userText, setUserText] = useState('')
   const [userQuery, setUserQuery] = useState('')
   const [userPage, setUserPage] = useState(1)
+  const userSearch = useDebouncedSearch(userQuery, (q) => {
+    setUserQuery(q)
+    setUserPage(1)
+  })
   const users = useQuery({
     queryKey: supportUsersKey(tenantId, userQuery, userPage),
     queryFn: () => fetchSupportUsers(tenantId, userQuery, userPage),
@@ -73,34 +76,33 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
     staleTime: 0,
     placeholderData: keepPreviousData,
   })
-  useEffect(() => {
-    if (userText.trim() === userQuery) return
-    const id = setTimeout(() => {
-      setUserQuery(userText.trim())
-      setUserPage(1)
-    }, SEARCH_DEBOUNCE_MS)
-    return () => clearTimeout(id)
-  }, [userText, userQuery])
+  // Users of the previous tenant or page stay on screen while the new ones load; none of them may be picked.
+  const usersFresh = users.data && !users.isPlaceholderData ? users.data : undefined
 
   // Preselect the tenant the dialog was opened for (or the first), and the first user of the chosen tenant, as the demo does.
+  // They run again when the form is cleared (closing the dialog), because a list that is already cached does not change.
   useEffect(() => {
     if (!open || !tenants.data) return
     const ids = tenants.data.items.map((t) => t.id)
-    if (!ids.includes(getValues('tenantId'))) setValue('tenantId', defaultTenantId && ids.includes(defaultTenantId) ? defaultTenantId : (ids[0] ?? ''))
-  }, [open, tenants.data, defaultTenantId, getValues, setValue])
+    if (!ids.includes(tenantId)) setValue('tenantId', defaultTenantId && ids.includes(defaultTenantId) ? defaultTenantId : (ids[0] ?? ''))
+  }, [open, tenants.data, defaultTenantId, tenantId, setValue])
   useEffect(() => {
-    if (!users.data) return
-    if (!users.data.items.some((u) => u.id === getValues('tenantUserId'))) setValue('tenantUserId', users.data.items[0]?.id ?? '')
-  }, [users.data, getValues, setValue])
+    if (!usersFresh) return
+    if (!usersFresh.items.some((u) => u.id === tenantUserId)) setValue('tenantUserId', usersFresh.items[0]?.id ?? '')
+  }, [usersFresh, tenantUserId, setValue])
+
+  function clearUserSearch() {
+    userSearch.reset()
+    setUserQuery('')
+    setUserPage(1)
+  }
 
   const start = useMutation({ mutationFn: startSession, onSettled: () => queryClient.invalidateQueries({ queryKey: supportKey }) })
 
   function close() {
     setFormError(null)
     setConfirming(null)
-    setUserText('')
-    setUserQuery('')
-    setUserPage(1)
+    clearUserSearch()
     reset(EMPTY)
     onOpenChange(false)
   }
@@ -137,7 +139,7 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
   const userName = users.data?.items.find((u) => u.id === (confirming?.tenantUserId ?? tenantUserId))?.name ?? ''
   const noTenants = tenants.data && tenants.data.items.length === 0
   const noUsers = users.data && users.data.items.length === 0
-  const ready = !!tenants.data && !noTenants && !!users.data && !noUsers && tenantUserId !== ''
+  const ready = !!tenants.data && !noTenants && !!usersFresh && !noUsers && tenantUserId !== ''
   const invalid = (name: keyof StartValues) => (errors[name] ? true : undefined)
 
   return (
@@ -189,9 +191,7 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
                   onChange={(e) => {
                     setValue('tenantId', e.target.value, { shouldValidate: !!errors.tenantId })
                     setValue('tenantUserId', '') // the users belong to the tenant
-                    setUserText('')
-                    setUserQuery('')
-                    setUserPage(1)
+                    clearUserSearch()
                   }}
                 >
                   {tenants.data ? (
@@ -214,10 +214,12 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
               <Search size={16} strokeWidth={1.7} aria-hidden="true" className="pointer-events-none absolute top-[11px] left-[11px] text-ink-2" />
               <Input
                 id="si-user-search"
-                value={userText}
-                onChange={(e) => setUserText(e.target.value)}
+                value={userSearch.text}
+                onChange={(e) => userSearch.setText(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.preventDefault() // Enter searches, it does not start the session
+                  if (e.key !== 'Enter') return
+                  e.preventDefault() // Enter searches, it does not start the session
+                  userSearch.commit()
                 }}
                 placeholder="Search this tenant's users"
                 autoComplete="off"

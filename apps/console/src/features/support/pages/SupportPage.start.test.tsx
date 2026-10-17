@@ -123,6 +123,22 @@ describe('Start a support session: the form', () => {
     expect(names(userSelect())).toEqual(['Alex Park', 'Mara Vance', 'Priya Okafor']) // no Dana Whitfield: she is platform staff
   })
 
+  it('can be opened again after it was closed: the first user is picked and Start works', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await user.click(startButton())
+    await screen.findByRole('dialog', { name: 'Start a support session' })
+    await waitFor(() => expect(submit()).toBeEnabled())
+    expect(userSelect()).toHaveValue(allTenantUsers(tenantId('Arkadios Home Office')).find((u) => u.name === 'Alex Park')!.id)
+    await typeReason(user)
+    await user.click(submit())
+    await screen.findByText(/Support session started on/)
+    expect(posts()).toHaveLength(1)
+  })
+
   it('shows the users of the tenant you choose, never a disabled one', async () => {
     const user = userEvent.setup()
     open()
@@ -334,6 +350,62 @@ describe('Start a support session: finding a user', () => {
     expect(userRequests().at(-1)!.get('page')).toBeNull() // page 1
     expect(userRequests().at(-1)!.get('q')).toBe('5')
     expect(names(userSelect())[0]).toBe('Person 05')
+  })
+
+  describe('a search that is still waiting', () => {
+    afterEach(() => vi.useRealTimers())
+
+    /** Opens the dialog with the clock under control, ready to type. */
+    async function openWithClock() {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      open()
+      await vi.waitFor(() => expect(startButton()).toBeEnabled())
+      fireEvent.click(startButton())
+      await vi.waitFor(() => expect(submit()).toBeEnabled())
+    }
+    const northwind = () => tenantId('Northwind Advisory Group')
+    const requestsFor = (id: string) => userRequests(id).map((p) => p.get('q'))
+    const userRequests = (id: string) =>
+      fetchSpy.mock.calls.map(([url]) => String(url)).filter((url) => url.includes(`/tenants/${id}/support-users`)).map((url) => new URL(url, location.href).searchParams)
+
+    it('is not applied to the tenant chosen meanwhile (the timer fires before the new tenant has been seen)', async () => {
+      await openWithClock()
+      fireEvent.change(search(), { target: { value: 'priya' } })
+      act(() => {
+        fireEvent.change(tenantSelect(), { target: { value: northwind() } })
+        vi.advanceTimersByTime(300) // the search's timer fires in the same moment
+      })
+      act(() => void vi.advanceTimersByTime(600))
+      await vi.waitFor(() => expect(names(userSelect())).toEqual(['Elena Marsh', 'Tom Hadley']))
+      expect(search()).toHaveValue('')
+      expect(requestsFor(northwind()).every((q) => !q)).toBe(true) // nobody searched Northwind for priya
+    })
+
+    it('is dropped when the dialog is closed before it fires', async () => {
+      await openWithClock()
+      fireEvent.change(search(), { target: { value: 'priya' } })
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        vi.advanceTimersByTime(300)
+      })
+      act(() => void vi.advanceTimersByTime(600))
+      fireEvent.click(startButton())
+      await vi.waitFor(() => expect(submit()).toBeEnabled())
+      expect(search()).toHaveValue('')
+      await vi.waitFor(() => expect(names(userSelect())).toEqual(['Alex Park', 'Mara Vance', 'Priya Okafor']))
+    })
+
+    it('is applied together with a page change: the first page of the search, not the second page of the old list', async () => {
+      manyUsers()
+      await openWithClock()
+      await vi.waitFor(() => expect(userSelect().options).toHaveLength(25))
+      fireEvent.change(search(), { target: { value: 'person 5' } })
+      act(() => void fireEvent.click(screen.getByRole('button', { name: 'Next' })))
+      act(() => void vi.advanceTimersByTime(600))
+      const last = fetchSpy.mock.calls.map(([url]) => new URL(String(url), location.href)).filter((u) => u.pathname.endsWith('/support-users')).at(-1)!
+      expect(last.searchParams.get('q')).toBe('person 5')
+      expect(last.searchParams.get('page')).toBeNull() // page 1 of the matches
+    })
   })
 
   it('starts the search over when you choose another tenant, and when the dialog is opened again', async () => {
