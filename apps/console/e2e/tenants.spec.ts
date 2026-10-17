@@ -102,12 +102,31 @@ test.describe('search and status filter', () => {
   test('the search and the status filter work together', async ({ page }) => {
     await openTenants(page)
     await status(page).selectOption('active')
+    await expect(page).toHaveURL(/[?]status=active$/)
     await search(page).fill('o')
+    await expect(page).toHaveURL(/[?]q=o&status=active$/) // waits for the search to reach the address, not for a timer
     await expect(names(page)).toHaveText(['Arkadios Home Office', 'Cobalt Ridge Wealth', 'Northwind Advisory Group', 'Quillon Trust Company'])
     await status(page).selectOption('suspended')
+    await expect(page).toHaveURL(/[?]q=o&status=suspended$/) // both are kept
     await expect(names(page)).toHaveText(['Sterling Hollow Family Office']) // it has an "o" too
     await search(page).fill('north')
+    await expect(page).toHaveURL(/[?]q=north&status=suspended$/)
     await expect(page.locator('#t-body')).toContainText(NO_MATCH)
+  })
+
+  test('a status chosen while the search is still waiting is kept with it, and the list is asked once for both', async ({ page }) => {
+    await openTenants(page)
+    const asked: string[] = []
+    page.on('request', (r) => {
+      if (/\/tenants\?/.test(r.url())) asked.push(new URL(r.url()).search)
+    })
+    await search(page).fill('o') // not applied yet: it waits for the typing to pause
+    await status(page).selectOption('suspended') // chosen straight away
+    await expect(page).toHaveURL(/[?]q=o&status=suspended$/)
+    await expect(names(page)).toHaveText(['Sterling Hollow Family Office'])
+    expect(asked.filter((q) => q.includes('status=suspended') && q.includes('q=o'))).toHaveLength(1)
+    expect(asked.filter((q) => q.includes('status=suspended') && !q.includes('q=o'))).toHaveLength(0) // never the status alone
+    await expect(page).toHaveURL(/[?]q=o&status=suspended$/) // and it stays
   })
 
   test('the server does the filtering: the request carries the search and the status', async ({ page }) => {

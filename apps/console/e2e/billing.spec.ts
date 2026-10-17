@@ -91,6 +91,18 @@ test.describe('filters, sorting and paging', () => {
     await expect(page).toHaveURL(new RegExp(`[?]month=${thisMonth}$`))
   })
 
+  test('a status or a month chosen while the search is still waiting is kept with it', async ({ page }) => {
+    await openBilling(page)
+    await page.getByLabel('Search bills by tenant').fill('sterling') // not applied yet
+    await page.getByLabel('Filter by status').selectOption('overdue') // chosen straight away
+    await expect(page).toHaveURL(/[?]q=sterling&status=overdue$/)
+    await expect(rows(page)).toHaveCount(1)
+    const thisMonth = new Date().toISOString().slice(0, 7)
+    await page.getByLabel('Search bills by tenant').fill('sterl') // waiting again
+    await page.getByLabel('Filter by month').fill(thisMonth)
+    await expect(page).toHaveURL(new RegExp(`[?]q=sterl&status=overdue&month=${thisMonth}$`))
+  })
+
   test('the totals follow the search and the month, but not the status', async ({ page }) => {
     await openBilling(page)
     await page.getByLabel('Search bills by tenant').fill('sterling')
