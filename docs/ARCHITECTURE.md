@@ -426,6 +426,99 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   `access.manage`, saving a role edit that removes permissions, and granting `access.manage` to a role. The server does not ask. Cancel
   is focused first in every dialog.
 
+**Support access (platform API; the tenant API and the workspace are described as backend notes)**
+- A support session lets a platform staff member open a tenant's workspace as one of its users, to troubleshoot, without ever seeing a
+  password. It is a record on the platform side plus a short tenant token. The tenant workspace comes later: the console mocks the handoff.
+- **Who and what can be targeted.**
+  - Tenants with status `active` or `trial`. `suspended` and `offboarding` tenants are refused with `409` `support/not-eligible`. This is a
+    business rule to confirm with the client (the demo allowed everything except offboarding).
+  - Only active users of that tenant. A disabled or invited user is refused with `409` `support/not-eligible`.
+  - Never another platform staff member: a tenant login that belongs to a platform staff member is not listed and is refused with the same
+    `409` and the same sentence as a disabled user, so a refusal does not confirm who is staff.
+  - A support session cannot start another support session (no chaining). The platform API does not accept a tenant token at all; the start
+    request answers `403` `support/no-chaining` for one so the reason is plain. The tenant API refuses `start-support-session` for a support token too.
+- `GET /support/tenants?q=&page=&pageSize=` returns the list envelope of eligible tenants, `{ id, name, domain, status }`, by name. Needs
+  `support.manage`. `GET /tenants/{id}/support-users?q=&page=&pageSize=` returns the envelope of eligible users, `{ id, name, roleName }`.
+  Needs `support.manage`; `404` for an unknown tenant, `409` `support/not-eligible` for a tenant that is not eligible. Both are `no-store`.
+- `GET /support-sessions?status=&page=&pageSize=` returns the list envelope, newest first (`startedAt` descending, ties by `id`). Needs
+  `support.view`, so every role that can see the page sees every session. `status` is optional: `active`, `ended`, `expired` or `revoked`.
+  Paging is as for the tenants list. Invalid parameters return `400` with `errors` keyed `status`, `page` and `pageSize`. Item:
+  `{ id, staffId, staffName, tenantId, tenantName, tenantUserId, tenantUserName, reasonId, reason, mode, durationMinutes, startedAt, expiresAt, endedAt, status, endedById, endedByName }`.
+  - `status` says how it ended: `active` (still open), `ended` (by its owner), `expired` (the time ran out; `endedAt` equals `expiresAt` and
+    nobody ended it), `revoked` (ended by someone else with `support.manage`, by the system when the owner lost the right to run sessions, or
+    because a handoff code was reused). `endedById` and `endedByName` say who; both are `null` for `active` and `expired`.
+  - `reason` is plain text. It is stored apart from the session and its id (`reasonId`) travels in the support token. Render it as text, never as HTML.
+- `GET /support-sessions/active` returns `{ session }`: the signed-in person's own open session, or `null`. Needs `support.view`.
+- `POST /support-sessions` with `{ tenantId, tenantUserId, reason, durationMinutes, mode }`. Needs `support.manage`.
+  - `reason` is required: trimmed, 20 to 500 characters, plain text (no control characters except a tab and a line break). It is saved with the
+    session and **the client's admins can see it**, so the console shows: "Do not type passwords or client personal data. The client's admins will see this reason."
+  - `durationMinutes` is exactly `15`, `30` or `60`; the console preselects `30`. There is no custom time: any other number, and fields such as
+    `expiresAt`, are refused as unknown or invalid. `mode` is `read` (the console's default) or `edit`; see "What a support token may do".
+  - Unknown fields are refused. Invalid input returns `400` with `errors` keyed by field, every bad field in one response.
+  - Order of checks: `401`, `403` (`support/no-chaining` for a tenant token), `403` (no `support.manage`), `429` (rate limit), `400`,
+    `409` `support/session-active`, `404` unknown tenant, `409` `support/not-eligible` (tenant), `404` unknown user in that tenant,
+    `409` `support/not-eligible` (user).
+  - **One active session per staff member.** A second start returns `409` `support/session-active`, naming the open one. The console asks to
+    end the first (`POST .../end`) and then starts again.
+  - **Rate limit: 10 start requests per staff member per rolling hour**, counted whether they succeed or not. The 11th returns `429` with
+    `Retry-After`.
+  - Success is `201` with `{ session, handoff }` and a `Location` header. `handoff` is `{ code, url, expiresIn }`: see "The handoff".
+    `Cache-Control: no-store`.
+- **A session cannot be extended.** There is no endpoint and no field for it. Staff who need more time start a new session, with a new reason
+  (after the first has ended or expired).
+- `POST /support-sessions/{id}/end` ends a session. The owner can always end their own (even after losing `support.manage`). Anyone else needs
+  `support.manage`, and that is a **revoke**: the status is `revoked` and `endedBy` is the person who did it. `403` for anyone else, `404` for an
+  unknown id, `409` `support/not-active` for a session that is already over. It returns the session. Ending takes effect at once (see "The token").
+- `POST /support-sessions/{id}/handoff` issues a new handoff code for a session whose workspace did not open yet (a blocked pop-up). It returns
+  `{ handoff }`. Owner only (not even a Super admin; `403`). The session must be active, and it only works **until the first exchange**
+  (`409` `support/already-opened`). At most **3 re-issues** per session (`409` `support/reissue-limit`). Each new code invalidates the previous one.
+  Each re-issue writes an audit entry.
+- **Signing out of the console does not end a support session.** The session belongs to the tenant token, not to the console login. It ends
+  only by End session, by expiry, by a revoke, or because the owner lost the right to run sessions. After signing in again the console shows the
+  open session from `GET /support-sessions/active`.
+- **Losing the right ends the sessions.** All of a staff member's active sessions end as `revoked` when the staff member is disabled or removed,
+  when a role change takes `support.manage` away from them, and when a role edit removes `support.manage` from their role. The audit entry's
+  actor is the person who made the change. This is part of the same unit of work as the access change.
+- **The handoff.** The browser never receives a tenant token in a URL.
+  - Start returns a one-time `code` (at least 128 bits of randomness, stored hashed, bound to the session, single use, valid 60 seconds,
+    consumed with an atomic conditional update). `url` is `https://<tenant domain>/support-handoff#code=<code>`: the code is in the **fragment**,
+    so it never reaches a server, a log or a referrer. The console opens it with `window.open(url, '_blank', 'noopener,noreferrer')`.
+  - The workspace page at `/support-handoff` sends `Referrer-Policy: no-referrer` and `Cache-Control: no-store`. Its first act, before any other
+    work, is `history.replaceState(null, '', location.pathname)` to clear the fragment. It then calls the exchange and keeps the token in memory only.
+  - `POST /api/v1/auth/support-exchange` (tenant API) with `{ code }` returns `200` with `{ accessToken, expiresIn, session }`, where `session` is
+    `{ id, actAs: { id, name }, tenantUser: { id, name }, reason, mode, expiresAt }`. `Cache-Control: no-store`, **no refresh token and no cookie**.
+  - A wrong, expired, replaced or reused code returns **one generic `400`** (`auth/invalid-handoff`, "This support link is invalid or has expired.").
+    The response never says which. **A reused code also revokes its session** (status `revoked`) and writes a security audit entry, because only a
+    copy of the code can explain a second try; the caller still gets the same generic `400`. A code that was replaced by a re-issue is simply
+    invalid, and does not revoke anything.
+  - The exchange is rate limited (10 attempts a minute per client address; `429` with `Retry-After`).
+- **The token.** Short, **not renewable**, no refresh token. It carries `sub` (the tenant user), `act_as` (the platform user id), `sid` (the
+  session id), `rid` (the reason id), `mode` and `exp`. `exp` is the end of the chosen duration, and `expiresIn` in the exchange is what is left
+  of it, never more. **Ending the session revokes the token at once**: the tenant API checks the session's state on every request (no cache
+  that can outlive an end), so End session, a revoke and expiry all stop it on the next request. Expiry is derived from `expiresAt`, and a job
+  writes the `support.expired` audit entry when it passes.
+- **Audit, in both places.**
+  - Mother DB `PlatformAuditLog`: `support.started`, `support.ended`, `support.expired`, `support.revoked`, `support.handoff-reissued`
+    and `support.handoff-replayed`. Each records who (the actor, or the system for an expiry), the tenant, the tenant user, the reason and the mode.
+    These are security events.
+  - Tenant DB `AuditLog`: every action taken during a session is written with `Source = Support`, a copy of the staff member's name and the
+    session id, and `UserId` of the tenant user it acted as. The session opening (on exchange) and closing are entries too. **The tenant's own
+    admins see these as "Support access" entries on their audit page**, with the staff member's name, the reason, the mode and the times.
+- **What a support token may do in the tenant API.** Backend notes for the tenant API; the mock holds the rule in `supportPolicy`.
+  - **Read only is the default.** Every change is refused with `403` `support/read-only`. `edit` is a separate, explicit choice made when the
+    session starts (the console asks to confirm it) and allows ordinary changes only.
+  - **Always refused, in both modes, with `403` `support/restricted-action`:** changing a password or MFA; creating or changing users, roles or
+    permissions; exporting data; deleting anything; approving or signing anything; changing billing or integration settings; starting a support session.
+  - Deny by default: a new endpoint that changes data is refused for a support token until it is explicitly marked as allowed in edit mode.
+  - A support token is never accepted by the platform API.
+- **The workspace banner (a requirement for the tenant app).** For the whole session, on every page, a permanent banner shows who is acting, the
+  reason, a countdown to the server's `expiresAt`, and an End session button (which calls `POST /api/v1/support/session/end` and returns to the
+  sign-in page). It cannot be dismissed or hidden, renders the reason as text, and the workspace signs out when the time is up.
+- Backend notes:
+  - Business rules to confirm with the client: which tenant statuses may be targeted (above), the 15, 30 and 60 minute lengths, 10 starts an hour,
+    and 3 re-issues.
+  - The reason is the client's data too: show it to the tenant's admins and keep it with the audit trail. Never log it in application logs.
+
 **Password reset (platform API; the tenant API follows the same shape)**
 - `POST /auth/forgot-password` with `{ email }`. Always `204` for any well-formed email, whether or not the account exists
   (no account enumeration). Strict rate limit per IP and per email; `429` with `Retry-After`. The email is sent by a job (outbox), not inline.
@@ -467,6 +560,7 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
 - Architecture tests (NetArchTest): Domain references nothing; Application references only Domain; Api never touches DbContext directly.
 - Permission tests: every endpoint rejects a user without the permission.
 - outranked checks apply to people and to roles
+- Support access: a handoff code works once, within 60 seconds, and a reused code revokes its session; a support token cannot start a session or call the platform API; the restricted actions are refused in both modes; ending a session stops its token on the next request; disabling a staff member or removing `support.manage` ends their sessions; an ineligible tenant, user or staff member is refused with the same answer.
 
 ## 13. Open decisions
 

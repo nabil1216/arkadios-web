@@ -1,11 +1,12 @@
 import { setupServer } from 'msw/node'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { API_BASE } from '@/lib/api'
+import { API_BASE, TENANT_API_BASE } from '@/lib/api'
 import { DEMO_CODE, DEMO_PASSWORD, permissions, staff } from './db'
 import { handlers } from './handlers'
 import { resetMockBills } from './bills'
 import { resetMockPlans } from './plans'
 import { platformAuditLog, resetMockStaff } from './staff'
+import { resetMockSupport } from './support'
 import { resetMockTenants, setProvisionStepMs } from './tenantCreate'
 
 const server = setupServer(...handlers)
@@ -968,5 +969,250 @@ describe('Access control endpoints', () => {
       ['Dana Whitfield', 'staff.removed'],
       ['Dana Whitfield', 'role.permissions-changed'],
     ])
+  })
+})
+
+describe('Support access endpoints', () => {
+  const as = (userId: string) => ({ Authorization: `Bearer mock-access.${userId}` })
+  const REASON = 'Checklist did not create tasks after a stage move'
+  const tenantUrl = (path: string) => new URL(TENANT_API_BASE + path, location.href).href
+  const send = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
+    fetch(url(path), { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })
+  const json = async (res: Response) => (await res.json()) as any // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  async function target(tenantName = 'Northwind Advisory Group', userName = 'Elena Marsh') {
+    const tenants = await json(await send('GET', '/support/tenants?pageSize=100', as('u2')))
+    const tenantId = tenants.items.find((t: { name: string }) => t.name === tenantName).id
+    const users = await json(await send('GET', `/tenants/${tenantId}/support-users?pageSize=100`, as('u2')))
+    return { tenantId, tenantUserId: users.items.find((u: { name: string }) => u.name === userName).id }
+  }
+  const startBody = async (over: Record<string, unknown> = {}) => ({ ...(await target()), reason: REASON, durationMinutes: 30, mode: 'read', ...over })
+  async function begin(userId = 'u2', over: Record<string, unknown> = {}) {
+    const res = await send('POST', '/support-sessions', as(userId), await startBody(over))
+    return { res, body: res.status === 201 ? await json(res.clone()) : null }
+  }
+  const exchange = (code: unknown) => fetch(tenantUrl('/auth/support-exchange'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
+  let info: MockInstance<typeof console.info>
+
+  beforeEach(() => {
+    resetMockStaff()
+    resetMockTenants()
+    resetMockSupport()
+    info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    info.mockRestore()
+    resetMockStaff()
+    resetMockTenants()
+    resetMockSupport()
+  })
+
+  describe('who may read and who may start', () => {
+    it('needs a token, and support.view to read the sessions', async () => {
+      await expectProblem(await send('GET', '/support-sessions', {}), 401)
+      const body = await expectProblem(await send('GET', '/support-sessions', as('u3')), 403) // Billing manager
+      expect(body.detail).toBe('Your role does not include Support access.')
+    })
+
+    it('shows a read-only role the sessions, in the list envelope with no-store caching', async () => {
+      const res = await send('GET', '/support-sessions', as('u4'))
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Cache-Control')).toBe('no-store')
+      expect(await res.json()).toMatchObject({ total: 2, page: 1, pageSize: 25, items: [expect.objectContaining({ status: 'ended', tenantName: 'Arkadios Home Office' }), expect.anything()] })
+    })
+
+    it('keeps a read-only role from starting a session or even listing who it could sign in as', async () => {
+      const tenants = await expectProblem(await send('GET', '/support/tenants', as('u4')), 403)
+      expect(tenants.detail).toBe('Your role cannot start support sessions.')
+      const { tenantId } = await target()
+      await expectProblem(await send('GET', `/tenants/${tenantId}/support-users`, as('u4')), 403)
+      const start = await expectProblem(await send('POST', '/support-sessions', as('u4'), await startBody()), 403)
+      expect(start.detail).toBe('Your role cannot start support sessions.')
+    })
+
+    it('refuses a bad status or page in the list, with every error at once', async () => {
+      const body = await expectProblem(await send('GET', '/support-sessions?status=live&page=0&pageSize=500', as('u2')), 400)
+      expect(Object.keys(body.errors!).sort()).toEqual(['page', 'pageSize', 'status'])
+    })
+
+    it('filters by status', async () => {
+      await begin()
+      const active = await json(await send('GET', '/support-sessions?status=active', as('u2')))
+      expect(active).toMatchObject({ total: 1, items: [expect.objectContaining({ status: 'active', staffName: 'Omar Haddad' })] })
+    })
+  })
+
+  describe('starting', () => {
+    it('answers 201 with the session and a one-time code in the fragment, and never a tenant token', async () => {
+      const { res, body } = await begin()
+      expect(res.status).toBe(201)
+      expect(res.headers.get('Cache-Control')).toBe('no-store')
+      expect(res.headers.get('Location')).toBe(`${API_BASE}/support-sessions/${body.session.id}`)
+      expect(body.session).toMatchObject({ status: 'active', mode: 'read', durationMinutes: 30, reason: REASON })
+      expect(body.handoff.expiresIn).toBe(60)
+      const handoff = new URL(body.handoff.url)
+      expect(handoff.hash).toBe(`#code=${body.handoff.code}`)
+      expect(handoff.search).toBe('')
+      expect(JSON.stringify(body)).not.toContain('mock-support.')
+    })
+
+    it('refuses a time that is not 15, 30 or 60, a short reason, and a field it does not know', async () => {
+      const body = await expectProblem(await send('POST', '/support-sessions', as('u2'), await startBody({ durationMinutes: 45, reason: 'short', minutes: 45 })), 400)
+      expect(Object.keys(body.errors!).sort()).toEqual(['durationMinutes', 'minutes', 'reason'])
+    })
+
+    it('names the rule when the tenant is not eligible', async () => {
+      const tenants = await json(await send('GET', '/tenants?status=suspended', as('u2')))
+      const body = await expectProblem(await send('POST', '/support-sessions', as('u2'), await startBody({ tenantId: tenants.items[0].id, tenantUserId: 'x' })), 409)
+      expect(body.type).toContain('support/not-eligible')
+      expect(body.detail).toContain('suspended')
+    })
+
+    it('asks to end the first session, naming it, before starting another', async () => {
+      await begin()
+      const body = await expectProblem((await begin()).res, 409)
+      expect(body.type).toContain('support/session-active')
+      expect(body.detail).toContain('Northwind Advisory Group')
+    })
+
+    it('never lets a support session start another one (no chaining), whatever its mode', async () => {
+      const { body } = await begin('u2', { mode: 'edit' })
+      const exchanged = await json(await exchange(body.handoff.code))
+      const chained = await send('POST', '/support-sessions', { Authorization: `Bearer ${exchanged.accessToken}` }, await startBody())
+      const problem = await expectProblem(chained, 403)
+      expect(problem.type).toContain('support/no-chaining')
+      expect((await send('GET', '/support-sessions', { Authorization: `Bearer ${exchanged.accessToken}` })).status).toBe(401) // the platform API does not know it
+    })
+
+    it('limits starts to 10 an hour per person, with Retry-After', async () => {
+      const bad = await startBody({ reason: 'short' })
+      const good = await startBody()
+      for (let i = 0; i < 10; i += 1) await send('POST', '/support-sessions', as('u2'), bad)
+      const res = await send('POST', '/support-sessions', as('u2'), good)
+      await expectProblem(res, 429)
+      expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0)
+      expect((await send('POST', '/support-sessions', as('u1'), good)).status).toBe(201) // someone else is not held back
+    })
+  })
+
+  describe('the tenant side of the handoff', () => {
+    it('trades the code for a short token with no refresh token and no cookie', async () => {
+      const { body } = await begin()
+      const res = await exchange(body.handoff.code)
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Cache-Control')).toBe('no-store')
+      expect(res.headers.get('Set-Cookie')).toBeNull()
+      const out = await res.json()
+      expect(Object.keys(out).sort()).toEqual(['accessToken', 'expiresIn', 'session'])
+      expect(out.expiresIn).toBeLessThanOrEqual(30 * 60)
+      expect(out.session).toMatchObject({ actAs: { name: 'Omar Haddad' }, tenantUser: { name: 'Elena Marsh' }, reason: REASON, mode: 'read' })
+    })
+
+    it('works once: a wrong code and a reused code get the same generic 400', async () => {
+      const { body } = await begin()
+      const wrong = await expectProblem(await exchange('nope'), 400)
+      expect((await exchange(body.handoff.code)).status).toBe(200)
+      const reused = await expectProblem(await exchange(body.handoff.code), 400)
+      expect({ type: reused.type, title: reused.title, detail: reused.detail }).toEqual({ type: wrong.type, title: wrong.title, detail: 'This support link is invalid or has expired.' })
+      expect(wrong.detail).toBe('This support link is invalid or has expired.')
+    })
+
+    it('ends the session when a code is reused, and the token with it', async () => {
+      const { body } = await begin()
+      const { accessToken } = await json(await exchange(body.handoff.code))
+      const tenantGet = () => fetch(tenantUrl('/support/session'), { headers: { Authorization: `Bearer ${accessToken}` } })
+      expect((await tenantGet()).status).toBe(200)
+      await exchange(body.handoff.code) // the second try
+      expect((await tenantGet()).status).toBe(401)
+      expect((await json(await send('GET', '/support-sessions?status=revoked', as('u2')))).total).toBe(1)
+    })
+
+    it('limits exchanges to 10 a minute', async () => {
+      for (let i = 0; i < 10; i += 1) await exchange(`wrong-${i}`)
+      const res = await exchange('wrong-11')
+      await expectProblem(res, 429)
+      expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0)
+    })
+
+    it('stops the token the moment the session is ended from the console', async () => {
+      const { body } = await begin()
+      const { accessToken } = await json(await exchange(body.handoff.code))
+      const tenantGet = () => fetch(tenantUrl('/support/session'), { headers: { Authorization: `Bearer ${accessToken}` } })
+      expect((await tenantGet()).status).toBe(200)
+      const ended = await send('POST', `/support-sessions/${body.session.id}/end`, as('u2'))
+      expect(ended.status).toBe(200)
+      expect(await json(ended)).toMatchObject({ status: 'ended', endedByName: 'Omar Haddad' })
+      const after = await tenantGet()
+      await expectProblem(after, 401)
+    })
+
+    it('ends from the workspace banner too', async () => {
+      const { body } = await begin()
+      const { accessToken } = await json(await exchange(body.handoff.code))
+      const res = await fetch(tenantUrl('/support/session/end'), { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } })
+      expect(await json(res)).toMatchObject({ status: 'ended', endedByName: 'Omar Haddad' })
+      expect((await json(await send('GET', '/support-sessions/active', as('u2')))).session).toBeNull()
+    })
+  })
+
+  describe('ending and revoking', () => {
+    it('lets the owner end, and someone with support.manage revoke another\'s', async () => {
+      const mine = (await begin('u2')).body
+      const revoked = await send('POST', `/support-sessions/${mine.session.id}/end`, as('u1'))
+      expect(await json(revoked)).toMatchObject({ status: 'revoked', endedByName: 'Dana Whitfield' })
+      const hers = (await begin('u1')).body
+      expect(await json(await send('POST', `/support-sessions/${hers.session.id}/end`, as('u1')))).toMatchObject({ status: 'ended' })
+    })
+
+    it('refuses anyone else', async () => {
+      const mine = (await begin('u2')).body
+      for (const user of ['u3', 'u4']) await expectProblem(await send('POST', `/support-sessions/${mine.session.id}/end`, as(user)), 403)
+      await expectProblem(await send('POST', `/support-sessions/nope/end`, as('u2')), 404)
+    })
+
+    it('says a session is already over with 409', async () => {
+      const mine = (await begin('u2')).body
+      await send('POST', `/support-sessions/${mine.session.id}/end`, as('u2'))
+      const body = await expectProblem(await send('POST', `/support-sessions/${mine.session.id}/end`, as('u2')), 409)
+      expect(body.type).toContain('support/not-active')
+    })
+
+    it('does not end when the staff member signs out of the console', async () => {
+      const login = await post('/auth/mfa', { challengeId: 'mock-challenge.u2', code: DEMO_CODE })
+      const cookie = cookieOf(login)!
+      await begin('u2')
+      const out = await fetch(url('/auth/logout'), { method: 'POST', headers: { 'X-Requested-With': 'arkadios-web', Cookie: `refresh_token=${cookie}` } })
+      expect(out.status).toBe(204)
+      const active = await json(await send('GET', '/support-sessions/active', as('u2')))
+      expect(active.session).toMatchObject({ status: 'active', tenantName: 'Northwind Advisory Group' })
+    })
+
+    it('ends when the staff member is disabled, as revoked', async () => {
+      const mine = (await begin('u2')).body
+      const res = await send('PATCH', '/staff/u2', as('u1'), { status: 'deactivated', version: 1 })
+      expect(res.status).toBe(200)
+      const list = await json(await send('GET', '/support-sessions?status=revoked', as('u1')))
+      expect(list.items[0]).toMatchObject({ id: mine.session.id, endedByName: 'Dana Whitfield' })
+    })
+  })
+
+  describe('a new link', () => {
+    it('is for the owner, until the first exchange, and ends the previous code', async () => {
+      const { body } = await begin()
+      await expectProblem(await send('POST', `/support-sessions/${body.session.id}/handoff`, as('u1')), 403)
+      const again = await json(await send('POST', `/support-sessions/${body.session.id}/handoff`, as('u2')))
+      expect(again.handoff.code).not.toBe(body.handoff.code)
+      await expectProblem(await exchange(body.handoff.code), 400)
+      expect((await exchange(again.handoff.code)).status).toBe(200)
+      const late = await expectProblem(await send('POST', `/support-sessions/${body.session.id}/handoff`, as('u2')), 409)
+      expect(late.type).toContain('support/already-opened')
+    })
+
+    it('stops after 3', async () => {
+      const { body } = await begin()
+      for (let i = 0; i < 3; i += 1) expect((await send('POST', `/support-sessions/${body.session.id}/handoff`, as('u2'))).status).toBe(200)
+      const limit = await expectProblem(await send('POST', `/support-sessions/${body.session.id}/handoff`, as('u2')), 409)
+      expect(limit.type).toContain('support/reissue-limit')
+    })
   })
 })

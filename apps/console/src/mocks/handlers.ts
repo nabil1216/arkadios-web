@@ -1,6 +1,6 @@
 import { delay, http, HttpResponse } from 'msw'
 import type { SessionResponse } from '@/features/auth/api/types'
-import { API_BASE, CSRF_HEADER } from '@/lib/api'
+import { API_BASE, CSRF_HEADER, TENANT_API_BASE } from '@/lib/api'
 import { hasPermission } from '@/features/auth/hooks/permissions'
 import { problem, sessionExpired, signInFailed, signInRequired, verificationFailed } from './problem'
 import { extendBill, invoiceOf, noticeOf, queryBills, summarizeBills } from './bills'
@@ -17,6 +17,21 @@ import {
   type Failure,
   type Outcome,
 } from './staff'
+import {
+  activeSessionOf,
+  endSession,
+  endSessionOfToken,
+  exchangeHandoff,
+  isSupportToken,
+  listSessions,
+  listSupportTenants,
+  listSupportUsers,
+  reissueHandoff,
+  sessionOfToken,
+  startSession,
+  type Failure as SupportFailure,
+  type Outcome as SupportOutcome,
+} from './support'
 import { createTenant, provisioningOf, settleProvisioning, tenantOptions } from './tenantCreate'
 import { queryTenants } from './tenants'
 import { ACCESS_TOKEN_SECONDS, DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
@@ -47,6 +62,29 @@ const accessForbidden = (change = false) =>
   })
 
 const asProblem = (f: Failure) => problem(f.status, f.slug, f.title, { detail: f.detail, errors: f.errors })
+
+const supportForbidden = (change = false) =>
+  problem(403, 'auth/forbidden', 'Forbidden', {
+    detail: change ? 'Your role cannot start support sessions.' : 'Your role does not include Support access.',
+  })
+
+/** A support problem; a 429 says when to try again. */
+function asSupportProblem(f: SupportFailure) {
+  const res = problem(f.status, f.slug, f.title, { detail: f.detail, errors: f.errors })
+  if (f.retryAfter) res.headers.set('Retry-After', String(f.retryAfter))
+  return res
+}
+
+/** Runs a support rule for a signed-in person and maps the outcome to HTTP. */
+function supportRun<T>(request: Request, need: 'support.view' | 'support.manage' | null, run: (actor: SeedStaff) => SupportOutcome<T>, ok: (value: T) => Response) {
+  const user = bearerUser(request)
+  if (!user) return signInRequired()
+  if (need && !hasPermission(permissions, user.role, need)) return supportForbidden(need === 'support.manage')
+  const result = run(user)
+  return result.ok ? ok(result.value) : asSupportProblem(result)
+}
+
+const bearerToken = (request: Request) => request.headers.get('Authorization')?.replace(/^Bearer /, '')
 
 const billNotFound = () => problem(404, 'not-found', 'Not found', { detail: 'No such bill.' })
 
@@ -454,6 +492,96 @@ export const handlers = [
       (actor) => updateRole(actor, String(params.role), body),
       (role) => HttpResponse.json(role, { headers: noStore }),
     )
+  }),
+
+  http.get(`${API_BASE}/support/tenants`, async ({ request }) => {
+    await delay(150)
+    return supportRun(request, 'support.manage', () => listSupportTenants(new URL(request.url).searchParams), (list) => HttpResponse.json(list, { headers: noStore }))
+  }),
+
+  http.get(`${API_BASE}/tenants/:id/support-users`, async ({ request, params }) => {
+    await delay(150)
+    return supportRun(
+      request,
+      'support.manage',
+      () => listSupportUsers(String(params.id), new URL(request.url).searchParams),
+      (list) => HttpResponse.json(list, { headers: noStore }),
+    )
+  }),
+
+  http.get(`${API_BASE}/support-sessions`, async ({ request }) => {
+    await delay(150)
+    return supportRun(request, 'support.view', () => listSessions(new URL(request.url).searchParams), (list) => HttpResponse.json(list, { headers: noStore }))
+  }),
+
+  // The signed-in person's own open session, for the console banner.
+  http.get(`${API_BASE}/support-sessions/active`, async ({ request }) => {
+    await delay(100)
+    const user = bearerUser(request)
+    if (!user) return signInRequired()
+    if (!hasPermission(permissions, user.role, 'support.view')) return supportForbidden()
+    return HttpResponse.json({ session: activeSessionOf(user.id) }, { headers: noStore })
+  }),
+
+  http.post(`${API_BASE}/support-sessions`, async ({ request }) => {
+    await delay(200)
+    // A token from a support session never starts another one: no chaining.
+    if (isSupportToken(bearerToken(request))) {
+      return problem(403, 'support/no-chaining', 'Not allowed', { detail: 'A support session cannot start another support session.' })
+    }
+    const body = await request.json().catch(() => null)
+    return supportRun(
+      request,
+      'support.manage',
+      (actor) => startSession(actor, body, location.origin),
+      (started) => HttpResponse.json(started, { status: 201, headers: { ...noStore, Location: `${API_BASE}/support-sessions/${started.session.id}` } }),
+    )
+  }),
+
+  http.post(`${API_BASE}/support-sessions/:id/end`, async ({ request, params }) => {
+    await delay(200)
+    // The owner may always end their own; anyone else needs support.manage, which endSession checks.
+    return supportRun(request, null, (actor) => endSession(actor, String(params.id)), (session) => HttpResponse.json(session, { headers: noStore }))
+  }),
+
+  http.post(`${API_BASE}/support-sessions/:id/handoff`, async ({ request, params }) => {
+    await delay(200)
+    return supportRun(
+      request,
+      null,
+      (actor) => reissueHandoff(actor, String(params.id), location.origin),
+      (issued) => HttpResponse.json(issued, { headers: noStore }),
+    )
+  }),
+
+  // --- the tenant API, as far as the handoff goes (the workspace itself comes later) ---
+
+  http.post(`${TENANT_API_BASE}/auth/support-exchange`, async ({ request }) => {
+    await delay(100)
+    const body = (await request.json().catch(() => null)) as { code?: unknown } | null
+    const result = exchangeHandoff(body?.code)
+    if (result.kind === 'ok') return HttpResponse.json(result.exchange, { headers: noStore }) // no refresh token, no cookie
+    if (result.kind === 'limited') {
+      const res = problem(429, 'rate-limited', 'Too many requests', { detail: 'Too many attempts. Try again shortly.' })
+      res.headers.set('Retry-After', String(result.retryAfter))
+      return res
+    }
+    // One answer for a wrong, expired, replaced or reused code.
+    return problem(400, 'auth/invalid-handoff', 'Invalid link', { detail: 'This support link is invalid or has expired.' })
+  }),
+
+  http.get(`${TENANT_API_BASE}/support/session`, async ({ request }) => {
+    await delay(50)
+    const session = sessionOfToken(bearerToken(request))
+    if (!session) return problem(401, 'auth/support-session-over', 'Support session over', { detail: 'This support session has ended.' })
+    return HttpResponse.json(session, { headers: noStore })
+  }),
+
+  http.post(`${TENANT_API_BASE}/support/session/end`, async ({ request }) => {
+    await delay(100)
+    const ended = endSessionOfToken(bearerToken(request))
+    if (!ended) return problem(401, 'auth/support-session-over', 'Support session over', { detail: 'This support session has ended.' })
+    return HttpResponse.json(ended, { headers: noStore })
   }),
 
   http.get(`${API_BASE}/permissions`, async ({ request }) => {

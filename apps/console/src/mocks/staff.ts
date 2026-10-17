@@ -17,6 +17,7 @@ import type { Action, Area, PermissionKey, Role } from '@/features/auth/api/type
 import { hasPermission, ROLE_LABELS } from '@/features/auth/hooks/permissions'
 import { resetAudit, writeAudit } from './audit'
 import { permissions, seedPermissions, seedStaff, staff, type SeedStaff } from './db'
+import { revokeSessionsOf } from './support'
 
 export { platformAuditLog } from './audit'
 
@@ -323,6 +324,9 @@ export function updateStaff(actor: SeedStaff, id: string, body: unknown): Outcom
       { field: 'status', old: was.status, new: person.status },
     ])
   }
+  // A support session is a use of support.manage: disabling the person, or moving them to a role without it, ends theirs as revoked.
+  if (input.status === 'deactivated') revokeSessionsOf(person.id, actor, 'account deactivated')
+  else if (roleChanges && !hasPermission(permissions, newRole, 'support.manage')) revokeSessionsOf(person.id, actor, 'role no longer has support.manage')
   return success(toMember(person), endsSessions ? [person.id] : [])
 }
 
@@ -350,6 +354,7 @@ export function removeStaff(actor: SeedStaff, id: string, version: string | null
     { field: 'status', old: person.status, new: 'removed' },
     { field: 'role', old: person.role, new: null },
   ])
+  revokeSessionsOf(person.id, actor, 'account removed')
   return success(null, [person.id])
 }
 
@@ -406,8 +411,12 @@ export function updateRole(actor: SeedStaff, id: string, body: unknown): Outcome
     return lastAdmin('No active person would be left with access to Access control.')
   }
 
+  const hadSupport = hasPermission(permissions, id, 'support.manage')
   permissions[id] = next
   versionOfRole[id] += 1
   audit(actor, 'role.permissions-changed', 'Role', id, ROLE_LABELS[id], [{ field: 'permissions', old: before, new: next }])
+  if (hadSupport && !hasPermission(permissions, id, 'support.manage')) {
+    for (const u of staff) if (u.role === id) revokeSessionsOf(u.id, actor, 'role no longer has support.manage')
+  }
   return success(toRole(id))
 }

@@ -6,6 +6,9 @@ export const CSRF_HEADER = { name: 'X-Requested-With', value: 'arkadios-web' } a
 /** Platform API base (docs/ARCHITECTURE.md, Wire conventions). */
 export const API_BASE = '/api/platform/v1'
 
+/** Tenant API base (docs/ARCHITECTURE.md, Wire conventions). The console only meets it in the support handoff. */
+export const TENANT_API_BASE = '/api/v1'
+
 /** RFC 9457 problem details, as the API returns them (docs/ARCHITECTURE.md, Wire conventions). */
 export interface ProblemDetails {
   type?: string
