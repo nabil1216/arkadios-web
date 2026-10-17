@@ -15,7 +15,10 @@ import {
 } from '@/features/access/api/types'
 import type { Action, Area, PermissionKey, Role } from '@/features/auth/api/types'
 import { hasPermission, ROLE_LABELS } from '@/features/auth/hooks/permissions'
+import { resetAudit, writeAudit } from './audit'
 import { permissions, seedPermissions, seedStaff, staff, type SeedStaff } from './db'
+
+export { platformAuditLog } from './audit'
 
 const ROLE_IDS: Role[] = ['admin', 'support', 'billing', 'auditor']
 const AREAS: Area[] = ['tenants', 'plans', 'billing', 'transactions', 'sms', 'support', 'access']
@@ -55,28 +58,8 @@ const conflict = (detail: string) => failure({ status: 409, slug: 'conflict', ti
 
 // --- state -------------------------------------------------------------------------------------
 
-export interface AuditChange {
-  field: string
-  old: unknown
-  new: unknown
-}
-/** One PlatformAuditLog entry: who, what, and the old and new values. The name is a copy, so it survives a soft delete. */
-export interface AuditEntry {
-  id: string
-  occurredAt: string
-  actorId: string
-  actorName: string
-  action: string
-  entityType: 'StaffUser' | 'Role'
-  entityId: string
-  entityName: string
-  changes: AuditChange[]
-  isSecurity: true
-}
-
 const roleVersions = (): Record<Role, number> => ({ admin: 1, support: 1, billing: 1, auditor: 1 })
 let versionOfRole = roleVersions()
-let auditLog: AuditEntry[] = []
 /** Soft-deleted people: gone from every list and from sign-in, kept for the audit trail. */
 let removed: SeedStaff[] = []
 
@@ -86,27 +69,13 @@ export function resetMockStaff() {
   const seeded = seedPermissions()
   for (const role of ROLE_IDS) permissions[role] = seeded[role]
   versionOfRole = roleVersions()
-  auditLog = []
+  resetAudit()
   removed = []
 }
 
-export const platformAuditLog = (): readonly AuditEntry[] => auditLog
 export const removedStaff = (): readonly SeedStaff[] => removed
 
-function audit(actor: SeedStaff, action: string, entityType: AuditEntry['entityType'], entityId: string, entityName: string, changes: AuditChange[]) {
-  auditLog.push({
-    id: crypto.randomUUID(),
-    occurredAt: new Date().toISOString(),
-    actorId: actor.id,
-    actorName: actor.name,
-    action,
-    entityType,
-    entityId,
-    entityName,
-    changes,
-    isSecurity: true,
-  })
-}
+const audit = writeAudit
 
 // --- permission helpers ------------------------------------------------------------------------
 
