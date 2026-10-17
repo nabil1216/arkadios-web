@@ -7,7 +7,9 @@ export const supportKey = ['support'] as const
 export const sessionListKey = (params: SessionListParams) => [...supportKey, 'sessions', params] as const
 export const activeSessionKey = [...supportKey, 'active'] as const
 export const supportTenantsKey = (q: string) => [...supportKey, 'tenants', q] as const
-export const supportUsersKey = (tenantId: string, q: string) => [...supportKey, 'users', tenantId, q] as const
+/** How many users the Start dialog shows at a time. */
+export const USER_PAGE_SIZE = 25
+export const supportUsersKey = (tenantId: string, q: string, page: number) => [...supportKey, 'users', tenantId, q, page] as const
 
 const query = (params: object) => {
   const out = new URLSearchParams()
@@ -21,8 +23,10 @@ export const fetchSessions = (params: SessionListParams) => api<SessionList>(`/s
 export const fetchActiveSession = async () => (await api<{ session: SupportSession | null }>('/support-sessions/active')).session
 
 export const fetchSupportTenants = (q: string) => api<ListResponse<SupportTenant>>(`/support/tenants?${query({ q, pageSize: 100 })}`)
-export const fetchSupportUsers = (tenantId: string, q: string) =>
-  api<ListResponse<SupportUser>>(`/tenants/${encodeURIComponent(tenantId)}/support-users?${query({ q, pageSize: 100 })}`)
+export const fetchSupportUsers = (tenantId: string, q: string, page = 1) =>
+  api<ListResponse<SupportUser>>(
+    `/tenants/${encodeURIComponent(tenantId)}/support-users?${query({ q, page: page > 1 ? page : undefined, pageSize: USER_PAGE_SIZE })}`,
+  )
 
 /** Not idempotent: every call opens a session (one at a time per person, and ten an hour). */
 export const startSession = (input: StartInput) => api<StartedSession>('/support-sessions', { method: 'POST', body: input })

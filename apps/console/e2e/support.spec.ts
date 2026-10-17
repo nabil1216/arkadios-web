@@ -121,6 +121,22 @@ test.describe('Sign in as, and Start support session', () => {
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   })
 
+  test('searches a tenant\'s users, and signs in as the one found', async ({ page }) => {
+    await signIn(page, accounts.support)
+    await page.getByRole('button', { name: 'Sign in as a user of Northwind Advisory Group' }).click()
+    const dialog = startDialog(page)
+    await expect(dialog.getByLabel('Sign in as').locator('option')).toHaveText(['Elena Marsh', 'Tom Hadley'])
+    await dialog.getByLabel('Search users').fill('tom')
+    await expect(dialog.getByLabel('Sign in as').locator('option')).toHaveText(['Tom Hadley'])
+    await dialog.getByLabel('Search users').fill('nobody here')
+    await expect(dialog.getByLabel('Sign in as').locator('option')).toHaveText(['No users match'])
+    await expect(dialog.getByRole('button', { name: 'Start support session' })).toBeDisabled()
+    await dialog.getByLabel('Search users').fill('tom')
+    await expect(dialog.getByLabel('Sign in as').locator('option')).toHaveText(['Tom Hadley'])
+    await submitStart(page)
+    await expect(banner(page)).toContainText('signed in as Tom Hadley at Northwind Advisory Group')
+  })
+
   test('offers 15, 30 and 60 minutes with 30 chosen, read only chosen, and no custom time', async ({ page }) => {
     await openSupport(page)
     await page.getByRole('button', { name: 'Start support session' }).click()

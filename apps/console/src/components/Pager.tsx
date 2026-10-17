@@ -19,13 +19,13 @@ export function Pager({ page, pageSize, total, onPage }: PagerProps) {
         Showing <span className="num">{from}</span> to <span className="num">{to}</span> of <span className="num">{total}</span>
       </p>
       <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <Button type="button" variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           Previous
         </Button>
         <span aria-current="page" className="text-ink-2">
           Page {page} of {pages}
         </span>
-        <Button variant="secondary" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+        <Button type="button" variant="secondary" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
           Next
         </Button>
       </div>

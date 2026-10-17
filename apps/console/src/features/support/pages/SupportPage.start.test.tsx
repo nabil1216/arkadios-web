@@ -218,6 +218,159 @@ describe('Start a support session: the form', () => {
   })
 })
 
+describe('Start a support session: finding a user', () => {
+  const userRequests = () =>
+    fetchSpy.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/support-users')).map((url) => new URL(url, location.href).searchParams)
+  const search = () => screen.getByLabelText('Search users') as HTMLInputElement
+
+  /** A tenant with 60 users, served 25 at a time, filtered by q. */
+  function manyUsers() {
+    const all = Array.from({ length: 60 }, (_, i) => ({ id: `user-${i + 1}`, name: `Person ${String(i + 1).padStart(2, '0')}`, roleName: 'Advisor' }))
+    server.use(
+      http.get(`${API_BASE}/tenants/:id/support-users`, ({ request }) => {
+        const p = new URL(request.url).searchParams
+        const q = (p.get('q') ?? '').toLowerCase()
+        const page = Number(p.get('page') ?? 1)
+        const pageSize = Number(p.get('pageSize') ?? 25)
+        const matches = all.filter((u) => u.name.toLowerCase().includes(q))
+        return HttpResponse.json({ items: matches.slice((page - 1) * pageSize, page * pageSize), total: matches.length, page, pageSize })
+      }),
+    )
+  }
+
+  it('has a search box next to the user list', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    expect(search()).toHaveValue('')
+    expect(search()).toHaveAttribute('placeholder', "Search this tenant's users")
+  })
+
+  it('narrows the list as you type, picks the first match, and starts the session as that user', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await user.selectOptions(tenantSelect(), tenantId('Northwind Advisory Group'))
+    await waitFor(() => expect(names(userSelect())).toEqual(['Elena Marsh', 'Tom Hadley']))
+    await user.type(search(), 'tom')
+    await waitFor(() => expect(names(userSelect())).toEqual(['Tom Hadley']))
+    expect(userSelect()).toHaveValue(allTenantUsers(tenantId('Northwind Advisory Group')).find((u) => u.name === 'Tom Hadley')!.id)
+    await typeReason(user)
+    await user.click(submit())
+    await screen.findByText(/Support session started on/)
+    expect(posts()[0].tenantUserId).toBe(allTenantUsers(tenantId('Northwind Advisory Group')).find((u) => u.name === 'Tom Hadley')!.id)
+  })
+
+  it('waits for the typing to pause: one request for what was typed, not one per key', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    const before = userRequests().length
+    await user.type(search(), 'priya')
+    await waitFor(() => expect(names(userSelect())).toEqual(['Priya Okafor']))
+    const sent = userRequests().slice(before).map((p) => p.get('q'))
+    expect(sent).toEqual(['priya'])
+  })
+
+  it('ignores case and spaces around the words', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await user.type(search(), '  MARA  ')
+    await waitFor(() => expect(names(userSelect())).toEqual(['Mara Vance']))
+  })
+
+  it('says when no one matches, turns Start off, and brings the list back when the box is cleared', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await user.type(search(), 'zzz')
+    await waitFor(() => expect(names(userSelect())).toEqual(['No users match']))
+    expect(submit()).toBeDisabled()
+    await user.clear(search())
+    await waitFor(() => expect(names(userSelect())).toEqual(['Alex Park', 'Mara Vance', 'Priya Okafor']))
+    await waitFor(() => expect(submit()).toBeEnabled())
+  })
+
+  it('does not start the session when Enter is pressed in the box', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await typeReason(user)
+    await user.type(search(), 'mara{Enter}')
+    await waitFor(() => expect(names(userSelect())).toEqual(['Mara Vance']))
+    expect(posts()).toEqual([])
+    expect(screen.getByRole('dialog', { name: 'Start a support session' })).toBeInTheDocument()
+  })
+
+  it('pages a long list from the server, 25 at a time, and picks the first of the new page', async () => {
+    manyUsers()
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await waitFor(() => expect(userSelect().options).toHaveLength(25))
+    const pages = () => screen.getByRole('navigation', { name: 'Pages' })
+    expect(pages()).toHaveTextContent('Showing 1 to 25 of 60')
+    expect(userSelect()).toHaveValue('user-1')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(userSelect()).toHaveValue('user-26'))
+    expect(userRequests().at(-1)!.get('page')).toBe('2')
+    expect(pages()).toHaveTextContent('Showing 26 to 50 of 60')
+    expect(posts()).toEqual([]) // the pager buttons do not submit the form
+    await user.click(screen.getByRole('button', { name: 'Previous' }))
+    await waitFor(() => expect(userSelect()).toHaveValue('user-1'))
+  })
+
+  it('searches across all the pages, and starts again from page 1', async () => {
+    manyUsers()
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await user.click(await screen.findByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(userSelect()).toHaveValue('user-26'))
+    await user.type(search(), '5')
+    await waitFor(() => expect(userSelect().options).toHaveLength(15)) // Person 05, 15, 25, 35, 45 and 50 to 59: they fit on one page
+    expect(screen.queryByRole('navigation', { name: 'Pages' })).not.toBeInTheDocument()
+    expect(userRequests().at(-1)!.get('page')).toBeNull() // page 1
+    expect(userRequests().at(-1)!.get('q')).toBe('5')
+    expect(names(userSelect())[0]).toBe('Person 05')
+  })
+
+  it('starts the search over when you choose another tenant, and when the dialog is opened again', async () => {
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await user.type(search(), 'priya')
+    await waitFor(() => expect(names(userSelect())).toEqual(['Priya Okafor']))
+    await user.selectOptions(tenantSelect(), tenantId('Northwind Advisory Group'))
+    expect(search()).toHaveValue('')
+    await waitFor(() => expect(names(userSelect())).toEqual(['Elena Marsh', 'Tom Hadley']))
+    await user.type(search(), 'tom')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await user.click(startButton())
+    await screen.findByRole('dialog', { name: 'Start a support session' })
+    expect(search()).toHaveValue('')
+  })
+
+  it('keeps the search box off while the request runs', async () => {
+    server.use(
+      http.post(`${API_BASE}/support-sessions`, async () => {
+        await new Promise((r) => setTimeout(r, 300))
+        return problem(500, 'server', 'Server error')
+      }),
+    )
+    const user = userEvent.setup()
+    open()
+    await openForm(user)
+    await typeReason(user)
+    await user.click(submit())
+    await waitFor(() => expect(search()).toBeDisabled())
+    await within(screen.getByRole('dialog')).findByText('Could not start the session. Try again.')
+    expect(search()).toBeEnabled()
+  })
+})
+
 describe('Start a support session: checks before sending', () => {
   it('needs a reason of at least 20 characters, focuses it, and sends nothing', async () => {
     const user = userEvent.setup()

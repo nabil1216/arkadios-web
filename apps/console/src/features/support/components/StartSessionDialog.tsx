@@ -1,13 +1,16 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Search } from 'lucide-react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Field } from '@/components/Field'
 import { NativeSelect } from '@/components/NativeSelect'
+import { Pager } from '@/components/Pager'
 import { Textarea } from '@/components/Textarea'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ApiError } from '@/lib/api'
 import { useReopenKey } from '@/lib/useReopenKey'
@@ -22,6 +25,7 @@ import { DurationChoice } from './DurationChoice'
 import { ModeChoice } from './ModeChoice'
 
 const FIELDS = ['tenantId', 'tenantUserId', 'reason', 'durationMinutes', 'mode'] as const
+const SEARCH_DEBOUNCE_MS = 300
 const EMPTY: StartValues = { tenantId: '', tenantUserId: '', reason: '', durationMinutes: DEFAULT_DURATION, mode: 'read' }
 
 interface StartSessionDialogProps {
@@ -58,7 +62,25 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
   const reasonLength = useWatch({ control, name: 'reason' }).trim().length
 
   const tenants = useQuery({ queryKey: supportTenantsKey(''), queryFn: () => fetchSupportTenants(''), enabled: open, staleTime: 0 })
-  const users = useQuery({ queryKey: supportUsersKey(tenantId, ''), queryFn: () => fetchSupportUsers(tenantId, ''), enabled: open && tenantId !== '', staleTime: 0 })
+  // The users of a tenant can be many: search them (once the typing pauses) and page through the matches.
+  const [userText, setUserText] = useState('')
+  const [userQuery, setUserQuery] = useState('')
+  const [userPage, setUserPage] = useState(1)
+  const users = useQuery({
+    queryKey: supportUsersKey(tenantId, userQuery, userPage),
+    queryFn: () => fetchSupportUsers(tenantId, userQuery, userPage),
+    enabled: open && tenantId !== '',
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  })
+  useEffect(() => {
+    if (userText.trim() === userQuery) return
+    const id = setTimeout(() => {
+      setUserQuery(userText.trim())
+      setUserPage(1)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(id)
+  }, [userText, userQuery])
 
   // Preselect the tenant the dialog was opened for (or the first), and the first user of the chosen tenant, as the demo does.
   useEffect(() => {
@@ -76,6 +98,9 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
   function close() {
     setFormError(null)
     setConfirming(null)
+    setUserText('')
+    setUserQuery('')
+    setUserPage(1)
     reset(EMPTY)
     onOpenChange(false)
   }
@@ -164,6 +189,9 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
                   onChange={(e) => {
                     setValue('tenantId', e.target.value, { shouldValidate: !!errors.tenantId })
                     setValue('tenantUserId', '') // the users belong to the tenant
+                    setUserText('')
+                    setUserQuery('')
+                    setUserPage(1)
                   }}
                 >
                   {tenants.data ? (
@@ -178,6 +206,26 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
                 </NativeSelect>
               )}
             </Field>
+
+            <div className="relative">
+              <label htmlFor="si-user-search" className="sr-only">
+                Search users
+              </label>
+              <Search size={16} strokeWidth={1.7} aria-hidden="true" className="pointer-events-none absolute top-[11px] left-[11px] text-ink-2" />
+              <Input
+                id="si-user-search"
+                value={userText}
+                onChange={(e) => setUserText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.preventDefault() // Enter searches, it does not start the session
+                }}
+                placeholder="Search this tenant's users"
+                autoComplete="off"
+                maxLength={100}
+                disabled={guard.pending}
+                className="h-[38px] bg-paper pl-[34px]"
+              />
+            </div>
 
             <Field id="si-user" label="Sign in as" hint="You act with this user's permissions, without their password." error={errors.tenantUserId?.message}>
               {(describedBy) => (
@@ -197,7 +245,7 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
                         </option>
                       ))
                     ) : (
-                      <option value="">No active users</option>
+                      <option value="">{userQuery ? 'No users match' : 'No active users'}</option>
                     )
                   ) : (
                     <option value="">Loading users</option>
@@ -205,6 +253,17 @@ export function StartSessionDialog({ open, onOpenChange, defaultTenantId, return
                 </NativeSelect>
               )}
             </Field>
+            {users.data ? (
+              <Pager
+                page={users.data.page}
+                pageSize={users.data.pageSize}
+                total={users.data.total}
+                onPage={(page) => {
+                  setUserPage(page)
+                  setValue('tenantUserId', '')
+                }}
+              />
+            ) : null}
             {users.isError ? (
               <p role="alert" className="-mt-2 text-[12.5px] text-red">
                 Could not load the users of this tenant. Choose it again to retry.

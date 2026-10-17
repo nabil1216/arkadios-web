@@ -31,10 +31,16 @@ describe('support api', () => {
     expect(await fetchActiveSession()).toBeNull()
   })
 
-  it('reads eligible tenants and users, 100 at a time, with an encoded id', async () => {
+  it('reads eligible tenants, 100 at a time, and users, 25 at a time, with an encoded id', async () => {
     await fetchSupportTenants('north')
     await fetchSupportUsers('a/b', '')
-    expect(seen.map((s) => `${s.path}${s.search}`)).toEqual(['/support/tenants?q=north&pageSize=100', '/tenants/a%2Fb/support-users?pageSize=100'])
+    expect(seen.map((s) => `${s.path}${s.search}`)).toEqual(['/support/tenants?q=north&pageSize=100', '/tenants/a%2Fb/support-users?pageSize=25'])
+  })
+
+  it('searches a tenant\'s users and asks for a page, 25 at a time', async () => {
+    await fetchSupportUsers('t1', 'tom hadley', 3)
+    await fetchSupportUsers('t1', 'x', 1)
+    expect(seen.map((s) => `${s.path}${s.search}`)).toEqual(['/tenants/t1/support-users?q=tom+hadley&page=3&pageSize=25', '/tenants/t1/support-users?q=x&pageSize=25'])
   })
 
   it('starts with exactly the five fields, ends and re-issues by id', async () => {
