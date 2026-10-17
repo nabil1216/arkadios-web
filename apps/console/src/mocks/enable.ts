@@ -14,4 +14,7 @@ export async function enableMocking() {
       if (request && new URL(request.url).pathname.startsWith('/api/')) defaults.warn()
     },
   })
+  // The workspace opens in a new tab, which has no data of its own: it asks the console tab (see crossTab.ts).
+  const { installCrossTab } = await import('./crossTab')
+  installCrossTab(location.pathname.startsWith('/mock-workspace'))
 }

@@ -20,18 +20,16 @@ import {
 import {
   activeSessionOf,
   endSession,
-  endSessionOfToken,
-  exchangeHandoff,
   isSupportToken,
   listSessions,
   listSupportTenants,
   listSupportUsers,
   reissueHandoff,
-  sessionOfToken,
   startSession,
   type Failure as SupportFailure,
   type Outcome as SupportOutcome,
 } from './support'
+import { tenantSide } from './tenantSide'
 import { createTenant, provisioningOf, settleProvisioning, tenantOptions } from './tenantCreate'
 import { queryTenants } from './tenants'
 import { ACCESS_TOKEN_SECONDS, DEMO_CODE, DEMO_PASSWORD, homeByRole, IDLE_MINUTES, permissions, staff, type SeedStaff } from './db'
@@ -559,7 +557,8 @@ export const handlers = [
   http.post(`${TENANT_API_BASE}/auth/support-exchange`, async ({ request }) => {
     await delay(100)
     const body = (await request.json().catch(() => null)) as { code?: unknown } | null
-    const result = exchangeHandoff(body?.code)
+    const result = await tenantSide.exchange(body?.code).catch(() => null)
+    if (!result) return problem(503, 'unavailable', 'Unavailable', { detail: 'The mock tenant API could not be reached.' })
     if (result.kind === 'ok') return HttpResponse.json(result.exchange, { headers: noStore }) // no refresh token, no cookie
     if (result.kind === 'limited') {
       const res = problem(429, 'rate-limited', 'Too many requests', { detail: 'Too many attempts. Try again shortly.' })
@@ -572,14 +571,14 @@ export const handlers = [
 
   http.get(`${TENANT_API_BASE}/support/session`, async ({ request }) => {
     await delay(50)
-    const session = sessionOfToken(bearerToken(request))
+    const session = await tenantSide.session(bearerToken(request)).catch(() => null)
     if (!session) return problem(401, 'auth/support-session-over', 'Support session over', { detail: 'This support session has ended.' })
     return HttpResponse.json(session, { headers: noStore })
   }),
 
   http.post(`${TENANT_API_BASE}/support/session/end`, async ({ request }) => {
     await delay(100)
-    const ended = endSessionOfToken(bearerToken(request))
+    const ended = await tenantSide.end(bearerToken(request)).catch(() => null)
     if (!ended) return problem(401, 'auth/support-session-over', 'Support session over', { detail: 'This support session has ended.' })
     return HttpResponse.json(ended, { headers: noStore })
   }),

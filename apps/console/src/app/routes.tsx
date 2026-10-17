@@ -16,6 +16,11 @@ const page = (load: () => Promise<{ default: ComponentType }>) => ({
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  // The stand-in tenant workspace the support handoff opens, in development only. `import.meta.env.DEV` is a build-time
+  // constant, so a production build drops the import; scripts/check-bundle.mjs fails the build if it leaks.
+  ...(import.meta.env.DEV
+    ? [{ path: '/mock-workspace/support-handoff', HydrateFallback: PageSpinner, lazy: async () => (await import('@/mocks/workspace/route')).load() }]
+    : []),
   {
     element: <RequireAuth />,
     // Shown while lazy page modules load on the first render.
