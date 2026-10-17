@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { afterEach, describe, expect, it } from 'vitest'
-import { formatAgo, formatDate, formatDay, formatMonth, formatMonthLong } from './format'
+import { formatAgo, formatDate, formatDateTime, formatDay, formatMonth, formatMonthLong } from './format'
 
 const ORIGINAL_TZ = process.env.TZ
 afterEach(() => {
@@ -68,5 +68,14 @@ describe('formatAgo', () => {
     [6 * 86_400_000, '6 days ago'],
   ])('%i ms ago reads "%s"', (ms, text) => {
     expect(formatAgo(before(ms), now)).toBe(text)
+  })
+})
+
+describe('formatDateTime', () => {
+  it('shows the local day and time', () => {
+    process.env.TZ = 'UTC'
+    expect(formatDateTime('2026-10-14T14:05:00.000Z')).toBe('Oct 14, 2:05 PM')
+    process.env.TZ = 'Pacific/Auckland'
+    expect(formatDateTime('2026-10-14T14:05:00.000Z')).toBe('Oct 15, 3:05 AM')
   })
 })

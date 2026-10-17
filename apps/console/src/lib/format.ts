@@ -29,3 +29,8 @@ export function formatAgo(iso: string, now: number = Date.now()): string {
   if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour')
   return rtf.format(Math.round(diff / 86400), 'day')
 }
+
+/** "Oct 14, 2:05 PM", in the viewer's local time: the demo's fmtDateTime(). */
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}

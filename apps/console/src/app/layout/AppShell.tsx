@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Outlet, useLocation } from 'react-router'
+import { SupportBanner } from '@/features/support/components/SupportBanner'
 import { useIdleSignOut } from '@/features/auth/hooks/useIdleSignOut'
 import { useSession } from '@/features/auth/hooks/session'
 import { Sidebar } from './Sidebar'
@@ -33,6 +34,7 @@ export function AppShell() {
       </a>
       <Sidebar user={session.user} />
       <div className="flex min-w-0 flex-col">
+        <SupportBanner />
         <main
           id="main"
           ref={mainRef}
