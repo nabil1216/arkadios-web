@@ -10,7 +10,7 @@ import { resetMockStaff } from '../staff'
 import { activeSessionOf, allTenantUsers, endSession, resetMockSupport, startSession } from '../support'
 import { resetMockTenants } from '../tenantCreate'
 import { tenantRecords } from '../tenants'
-import { handoffLoader } from './loader'
+import { handoffLoader, resetHandoffLoader } from './loader'
 import { POLL_MS, SupportHandoffPage } from './SupportHandoffPage'
 
 const server = setupServer(...handlers)
@@ -23,6 +23,7 @@ let fetchSpy: MockInstance<typeof fetch>
 let hashWhenAsked: string[]
 
 beforeEach(() => {
+  resetHandoffLoader()
   resetMockStaff()
   resetMockTenants()
   resetMockSupport()
@@ -104,6 +105,19 @@ describe('the stand-in workspace: opening with a code', () => {
   })
 })
 
+describe('the stand-in workspace: opened twice by the same page load', () => {
+  it('reads the fragment and exchanges once, however many times the router asks (StrictMode builds it twice)', async () => {
+    const { handoff } = begin()
+    window.history.replaceState(null, '', PATH + `#code=${handoff.code}`)
+    const [a, b] = await Promise.all([handoffLoader(), handoffLoader()])
+    expect(a).toBe(b)
+    expect(a.status).toBe('ok')
+    expect(hashWhenAsked).toEqual([''])
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/auth/support-exchange'))).toHaveLength(1)
+    expect(activeSessionOf('u2')).not.toBeNull() // not revoked by a second try
+  })
+})
+
 describe('the stand-in workspace: a link that does not work', () => {
   it('says one thing for a wrong code', async () => {
     openAt('#code=mock-handoff.nope')
@@ -122,7 +136,8 @@ describe('the stand-in workspace: a link that does not work', () => {
     openAt(`#code=${handoff.code}`)
     await screen.findByRole('status')
     document.body.innerHTML = ''
-    openAt(`#code=${handoff.code}`) // a second tab with the same code
+    resetHandoffLoader() // a second tab is a new page load
+    openAt(`#code=${handoff.code}`) // with the same code
     expect(await screen.findByRole('alert')).toHaveTextContent('This support link is invalid or has expired.')
     expect(activeSessionOf('u2')).toBeNull()
     expect(platformAuditLog().map((e) => e.action)).toContain('support.revoked')

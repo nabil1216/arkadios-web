@@ -485,6 +485,9 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
     so it never reaches a server, a log or a referrer. The console opens it with `window.open(url, '_blank', 'noopener,noreferrer')`.
   - The workspace page at `/support-handoff` sends `Referrer-Policy: no-referrer` and `Cache-Control: no-store`. Its first act, before any other
     work, is `history.replaceState(null, '', location.pathname)` to clear the fragment. It then calls the exchange and keeps the token in memory only.
+    It must read the fragment and call the exchange **once per page load**, even if the framework renders or loads twice (React's StrictMode
+    builds a router twice in development): the first run uses the code up and clears the fragment, so a second run would find nothing,
+    or send the spent code, which revokes the session (see below). Keep the result in module scope and give every caller the same one.
   - `POST /api/v1/auth/support-exchange` (tenant API) with `{ code }` returns `200` with `{ accessToken, expiresIn, session }`, where `session` is
     `{ id, actAs: { id, name }, tenantUser: { id, name }, reason, mode, expiresAt }`. `Cache-Control: no-store`, **no refresh token and no cookie**.
   - A wrong, expired, replaced or reused code returns **one generic `400`** (`auth/invalid-handoff`, "This support link is invalid or has expired.").

@@ -12,7 +12,7 @@ export type HandoffResult =
  * read the one-time code from the URL fragment and clear the fragment at once, before anything else, then trade the code
  * for a token. The token stays in the page's memory (here, in the route data) and is never written to storage or a URL.
  */
-export async function handoffLoader(): Promise<HandoffResult> {
+async function exchangeFromFragment(): Promise<HandoffResult> {
   const code = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('code')
   window.history.replaceState(null, '', window.location.pathname)
   if (!code) return { status: 'invalid' }
@@ -30,4 +30,19 @@ export async function handoffLoader(): Promise<HandoffResult> {
   } catch {
     return { status: 'unavailable' }
   }
+}
+
+// React can build the router twice in development (StrictMode), and so run a loader twice. The first run clears the fragment
+// and uses the code up, so a second run would find nothing, or the code already spent. One page load reads the fragment and
+// exchanges once, and everything that asks gets that same answer.
+let once: Promise<HandoffResult> | null = null
+
+export function handoffLoader(): Promise<HandoffResult> {
+  once ??= exchangeFromFragment()
+  return once
+}
+
+/** Forget the answer, so the next page load in a test starts fresh. A real page load does this by being a new document. */
+export function resetHandoffLoader() {
+  once = null
 }
