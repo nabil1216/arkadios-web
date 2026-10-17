@@ -328,7 +328,7 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/
 function newCode(s: SessionRecord, origin: string): Handoff {
   // A new code ends the old one.
   for (const entry of codes.values()) if (entry.sessionId === s.id && entry.state === 'valid') entry.state = 'superseded'
-  const code = `mock-handoff.${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '')
+  const code = `mock-handoff.${(crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '')}`
   codes.set(code, { sessionId: s.id, issuedAt: Date.now(), state: 'valid' })
   // The real URL is https://<tenant domain>/support-handoff#code=...; in the mock the stand-in workspace page serves it.
   return { code, url: `${origin}/mock-workspace/support-handoff#code=${code}`, expiresIn: HANDOFF_SECONDS }

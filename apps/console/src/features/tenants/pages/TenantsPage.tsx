@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Can } from '@/features/auth/components/Can'
 import { ApiError } from '@/lib/api'
 import { COMING_LATER, COMING_LATER_ID } from '../components/pendingAction'
+import { StartSessionProvider } from '@/features/support/components/StartSessionProvider'
+import { SIGN_IN_UNAVAILABLE, SIGN_IN_UNAVAILABLE_ID } from '@/features/support/components/signInAs'
 import { CreateTenantDrawer } from '../components/CreateTenantDrawer'
 import { TenantsTable } from '../components/TenantsTable'
 import { TenantsToolbar } from '../components/TenantsToolbar'
@@ -22,7 +24,7 @@ export default function TenantsPage() {
   const createButton = useRef<HTMLButtonElement>(null)
 
   return (
-    <>
+    <StartSessionProvider>
       <PageHeader
         title="Tenants"
         description="Each tenant has its own domain, database, plan, and user limit."
@@ -36,6 +38,9 @@ export default function TenantsPage() {
       />
       <p id={COMING_LATER_ID} className="sr-only">
         {COMING_LATER}
+      </p>
+      <p id={SIGN_IN_UNAVAILABLE_ID} className="sr-only">
+        {SIGN_IN_UNAVAILABLE}
       </p>
 
       <Can permission="tenants.manage">
@@ -86,6 +91,6 @@ export default function TenantsPage() {
           ) : null}
         </>
       )}
-    </>
+    </StartSessionProvider>
   )
 }

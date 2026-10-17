@@ -10,7 +10,7 @@ import { accessErrorText, isStale } from '../api/problems'
 import type { RoleInfo, StaffMember, UpdateStaffInput } from '../api/types'
 import { confirmCopy, roleChangeNeedsConfirm, type PendingChange } from '../hooks/confirmCopy'
 import { assignableRoles, canChangeRole } from '../hooks/outranks'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { StaffTable } from './StaffTable'
 
 interface StaffSectionProps {

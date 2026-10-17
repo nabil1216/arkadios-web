@@ -18,7 +18,7 @@ import { accessErrorText } from '../api/problems'
 import { EMAIL_MAX_LENGTH, NAME_MAX_LENGTH, type RoleInfo, type StaffMember } from '../api/types'
 import { inviteConfirmCopy } from '../hooks/confirmCopy'
 import { holdsManage } from '../hooks/permissionDiff'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 const DEFAULT_ROLE: Role = 'support' // the demo preselects Support lead
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/

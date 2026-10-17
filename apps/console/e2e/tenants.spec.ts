@@ -247,7 +247,7 @@ test.describe('buttons by role', () => {
     await button.click({ force: true }) // Playwright will not click aria-disabled controls otherwise
   }
 
-  test('super admin sees Manage, Sign in as and an enabled Create tenant; the row buttons are marked as coming later', async ({ page }) => {
+  test('super admin sees Manage, Sign in as and an enabled Create tenant; Manage is marked as coming later', async ({ page }) => {
     await openTenants(page, accounts.admin)
     await expect(rows(page)).toHaveCount(6)
     const create = page.getByRole('button', { name: /Create tenant/ })
@@ -259,12 +259,7 @@ test.describe('buttons by role', () => {
     await expect(page.getByRole('button', { name: 'Sign in as a user of Northwind Advisory Group' })).toBeVisible()
     await expect(page.getByRole('button', { name: /^View / })).toHaveCount(0)
 
-    for (const button of [
-      page.getByRole('button', { name: 'Manage Cobalt Ridge Wealth' }),
-      page.getByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' }),
-    ]) {
-      await later(button)
-    }
+    await later(page.getByRole('button', { name: 'Manage Cobalt Ridge Wealth' }))
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page).toHaveURL(/\/tenants$/)
 
@@ -290,8 +285,8 @@ test.describe('buttons by role', () => {
     await expect(page.getByRole('button', { name: /^Sign in as a user of / })).toHaveCount(6)
     await expect(page.getByRole('button', { name: /^Manage / })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Create tenant/ })).toHaveCount(0)
-    await later(page.getByRole('button', { name: 'Sign in as a user of Quillon Trust Company' }))
-    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Sign in as a user of Quillon Trust Company' }).click()
+    await expect(page.getByRole('dialog', { name: 'Start a support session' })).toBeVisible() // Sign in as works: it opens the dialog
   })
 
   for (const role of ['billing', 'auditor'] as const) {

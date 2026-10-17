@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Can } from '@/features/auth/components/Can'
+import { SignInAsButton } from '@/features/support/components/SignInAsButton'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { Tenant, TenantSortKey } from '../api/types'
@@ -24,8 +25,8 @@ import { COMING_LATER, COMING_LATER_ID } from './pendingAction'
 const features = tableFeatures({ rowSortingFeature, rowPaginationFeature })
 const helper = createColumnHelper<typeof features, Tenant>()
 
-// Teal ghost buttons from the demo (.btn--ghost .btn--small). They do nothing yet: the drawer and
-// the support session are later steps, so they stay focusable but aria-disabled, with a hint.
+// Teal ghost buttons from the demo (.btn--ghost .btn--small). Manage does nothing yet: the manage drawer
+// is a later step, so they stay focusable but aria-disabled, with a hint.
 const ROW_BUTTON =
   'inline-flex min-h-[30px] cursor-not-allowed items-center rounded-md px-2 text-[13px] font-medium whitespace-nowrap text-teal-ink'
 
@@ -58,9 +59,7 @@ function RowActions({ tenant }: { tenant: Tenant }) {
       </PendingRowButton>
       {/* As in the demo, only roles that can run support sessions get Sign in as. */}
       <Can permission="support.manage">
-        <PendingRowButton label="sign-in-as" tenantName={`a user of ${tenant.name}`}>
-          Sign in as
-        </PendingRowButton>
+        <SignInAsButton tenant={tenant} />
       </Can>
     </div>
   )

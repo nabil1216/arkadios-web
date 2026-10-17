@@ -12,7 +12,7 @@ import type { RoleInfo, RoleList } from '../api/types'
 import { rolesConfirmCopy, type RoleChange } from '../hooks/roleDraft'
 import { canChangeRole } from '../hooks/outranks'
 import { useRoleDrafts } from '../hooks/useRoleDrafts'
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Panel } from './Panel'
 import { RolesMatrix } from './RolesMatrix'
 

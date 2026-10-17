@@ -1,7 +1,12 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Eye } from 'lucide-react'
 import { useEffect } from 'react'
-import { supportKey } from '../api/support'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { useSubmitGuard } from '@/lib/useSubmitGuard'
+import { supportErrorText } from '../api/problems'
+import { reissueHandoff, supportKey } from '../api/support'
+import { openWorkspace } from '../hooks/openWorkspace'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useCountdown } from '../hooks/useCountdown'
 import { formatCountdown, MODE_LABEL } from '../hooks/sessionText'
@@ -10,6 +15,13 @@ import type { SupportSession } from '../api/types'
 function Banner({ session }: { session: SupportSession }) {
   const queryClient = useQueryClient()
   const left = useCountdown(session.expiresAt)
+  const guard = useSubmitGuard()
+  // A new one-time code, for a workspace tab that did not open (a blocked pop-up). It works until the workspace has been opened once.
+  const reopen = useMutation({
+    mutationFn: () => reissueHandoff(session.id),
+    onSuccess: ({ handoff }) => openWorkspace(handoff.url),
+    onError: (e) => toast.error(supportErrorText(e, 'Could not open the workspace. Try again.')),
+  })
 
   // When the time is up the server ends the session: read it again so the banner and the list catch up.
   useEffect(() => {
@@ -27,6 +39,9 @@ function Banner({ session }: { session: SupportSession }) {
         <span className="text-ink-2">Time left </span>
         <strong aria-label={`${formatCountdown(left)} left`}>{formatCountdown(left)}</strong>
       </span>
+      <Button variant="secondary" size="sm" disabled={guard.pending} onClick={() => void guard.run(() => reopen.mutateAsync())}>
+        Open workspace
+      </Button>
     </div>
   )
 }

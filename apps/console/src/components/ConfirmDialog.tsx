@@ -11,7 +11,18 @@ import {
 import { Button } from '@/components/ui/button'
 import { useReopenKey } from '@/lib/useReopenKey'
 import { useSubmitGuard } from '@/lib/useSubmitGuard'
-import type { ConfirmCopy } from '../hooks/confirmCopy'
+
+export interface ConfirmCopy {
+  title: string
+  /** Paragraphs before the lists. */
+  intro: string[]
+  /** What is lost or blocked, one list per person or role: a heading and a line each. */
+  lists: Array<{ title: string; items: string[] }>
+  /** Paragraphs after the lists. */
+  outro: string[]
+  confirmLabel: string
+  destructive: boolean
+}
 
 interface ConfirmDialogProps {
   /** Null keeps the dialog closed. */

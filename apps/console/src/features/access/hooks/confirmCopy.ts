@@ -1,3 +1,4 @@
+import type { ConfirmCopy } from '@/components/ConfirmDialog'
 import type { Role } from '@/features/auth/api/types'
 import type { RoleInfo, StaffMember } from '../api/types'
 import { describePermission, holdsManage, lostPermissions } from './permissionDiff'
@@ -7,17 +8,7 @@ export type PendingChange =
   | { kind: 'deactivate'; member: StaffMember }
   | { kind: 'remove'; member: StaffMember }
 
-export interface ConfirmCopy {
-  title: string
-  /** Paragraphs before the list. */
-  intro: string[]
-  /** What is lost, one list per person or role: a heading and a line each. */
-  lists: Array<{ title: string; items: string[] }>
-  /** Paragraphs after the list. */
-  outro: string[]
-  confirmLabel: string
-  destructive: boolean
-}
+export type { ConfirmCopy } from '@/components/ConfirmDialog'
 
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 

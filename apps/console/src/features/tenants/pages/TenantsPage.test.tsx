@@ -10,6 +10,7 @@ import { API_BASE } from '@/lib/api'
 import { handlers } from '@/mocks/handlers'
 import { problem } from '@/mocks/problem'
 import { resetMockTenants, setProvisionStepMs } from '@/mocks/tenantCreate'
+import { tenantRecords } from '@/mocks/tenants'
 import { makeSession, renderRoutes } from '@/test/render'
 import TenantsPage from './TenantsPage'
 
@@ -347,19 +348,42 @@ describe('TenantsPage permissions', () => {
     }
   })
 
-  it('marks Manage and Sign in as as coming in a later step, and they do nothing', async () => {
+  it('marks Manage as coming in a later step, and it does nothing', async () => {
     const user = userEvent.setup()
     const { router } = open('', 'admin')
     const manage = await screen.findByRole('button', { name: 'Manage Cobalt Ridge Wealth' })
-    const signInAs = await screen.findByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' })
-    for (const button of [manage, signInAs]) {
-      expect(button).toHaveAttribute('aria-disabled', 'true')
-      expect(button).toHaveAttribute('title', 'Coming in a later step')
-      expect(button).toHaveAccessibleDescription('Coming in a later step')
-      await user.click(button)
-    }
+    expect(manage).toHaveAttribute('aria-disabled', 'true')
+    expect(manage).toHaveAttribute('title', 'Coming in a later step')
+    expect(manage).toHaveAccessibleDescription('Coming in a later step')
+    await user.click(manage)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(searchOf(router)).toBe('')
+  })
+
+  it('opens Start a support session for that tenant from Sign in as', async () => {
+    const user = userEvent.setup()
+    open('', 'admin')
+    const signInAs = await screen.findByRole('button', { name: 'Sign in as a user of Cobalt Ridge Wealth' })
+    expect(signInAs).not.toHaveAttribute('aria-disabled')
+    await user.click(signInAs)
+    const dialog = await screen.findByRole('dialog', { name: 'Start a support session' })
+    await waitFor(() => expect(within(dialog).getByLabelText('Tenant')).toHaveValue(tenantRecords.find((t) => t.name === 'Cobalt Ridge Wealth')!.id))
+  })
+
+  it('offers Sign in as for a trial tenant too', async () => {
+    open('', 'admin')
+    expect(await screen.findByRole('button', { name: 'Sign in as a user of Marlow & Finch Partners' })).not.toHaveAttribute('aria-disabled')
+  })
+
+  it('turns Sign in as off for a suspended tenant, says why, and does nothing', async () => {
+    const user = userEvent.setup()
+    open('', 'admin')
+    const signInAs = await screen.findByRole('button', { name: 'Sign in as a user of Sterling Hollow Family Office' })
+    expect(signInAs).toHaveAttribute('aria-disabled', 'true')
+    expect(signInAs).toHaveAttribute('title', 'Support sessions are only available for active and trial tenants.')
+    expect(signInAs).toHaveAccessibleDescription('Support sessions are only available for active and trial tenants.')
+    await user.click(signInAs)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 
