@@ -7,6 +7,7 @@ import { useSubmitGuard } from '@/lib/useSubmitGuard'
 import { supportErrorText } from '../api/problems'
 import { reissueHandoff, supportKey } from '../api/support'
 import { openWorkspace } from '../hooks/openWorkspace'
+import { useEndSession } from '../hooks/useEndSession'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useCountdown } from '../hooks/useCountdown'
 import { formatCountdown, MODE_LABEL } from '../hooks/sessionText'
@@ -16,6 +17,7 @@ function Banner({ session }: { session: SupportSession }) {
   const queryClient = useQueryClient()
   const left = useCountdown(session.expiresAt)
   const guard = useSubmitGuard()
+  const end = useEndSession()
   // A new one-time code, for a workspace tab that did not open (a blocked pop-up). It works until the workspace has been opened once.
   const reopen = useMutation({
     mutationFn: () => reissueHandoff(session.id),
@@ -41,6 +43,24 @@ function Banner({ session }: { session: SupportSession }) {
       </span>
       <Button variant="secondary" size="sm" disabled={guard.pending} onClick={() => void guard.run(() => reopen.mutateAsync())}>
         Open workspace
+      </Button>
+      <Button
+        id="end-session"
+        variant="secondary"
+        size="sm"
+        disabled={guard.pending}
+        onClick={() =>
+          void guard.run(async () => {
+            try {
+              await end.mutateAsync(session.id)
+              toast('Support session ended')
+            } catch (e) {
+              toast.error(supportErrorText(e, 'Could not end the session. Try again.'))
+            }
+          })
+        }
+      >
+        End session
       </Button>
     </div>
   )

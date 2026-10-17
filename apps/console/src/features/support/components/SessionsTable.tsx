@@ -1,4 +1,5 @@
 import { StatusBadge } from '@/components/StatusBadge'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateTime } from '@/lib/format'
@@ -10,16 +11,48 @@ const BADGE = { active: 'sessionActive', ended: 'ended', expired: 'expired', rev
 const HEAD = 'h-auto border-b border-line bg-[#f8fafb] px-3 py-2.5 font-semibold text-ink-2'
 const CELL = 'px-3 py-3 align-middle whitespace-normal'
 
+/** What the End session and Revoke buttons do. Without it the table is read only. */
+export interface SessionActions {
+  /** The signed-in person: an open session of theirs gets End session. */
+  selfId: string | undefined
+  /** support.manage: an open session of someone else gets Revoke. */
+  canRevoke: boolean
+  /** A change is running: the buttons wait. */
+  pending: boolean
+  onEnd: (session: SupportSession) => void
+  onRevoke: (session: SupportSession) => void
+}
+
 interface SessionsTableProps {
   /** Undefined while the sessions are loading. */
   sessions: SupportSession[] | undefined
   emptyMessage: string
   /** A refetch keeps the previous rows on screen. */
   busy: boolean
+  actions?: SessionActions
+}
+
+/** The owner ends their own session; anyone else with support.manage revokes it. Neither is offered to a read-only role. */
+function RowButton({ session, actions }: { session: SupportSession; actions: SessionActions }) {
+  const mine = session.staffId === actions.selfId
+  if (!mine && !actions.canRevoke) return null
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="px-2 text-teal-ink"
+      disabled={actions.pending}
+      onClick={() => (mine ? actions.onEnd(session) : actions.onRevoke(session))}
+    >
+      {mine ? 'End session' : 'Revoke'}
+      {/* A text node carries the space: one inside the hidden span is dropped from the accessible name. */}{' '}
+      <span className="sr-only">{mine ? `on ${session.tenantName}` : `of ${session.staffName} on ${session.tenantName}`}</span>
+    </Button>
+  )
 }
 
 /** The demo's sessions table: when, who, where, as whom, why, how, and how it ended. */
-export function SessionsTable({ sessions, emptyMessage, busy }: SessionsTableProps) {
+export function SessionsTable({ sessions, emptyMessage, busy, actions }: SessionsTableProps) {
   return (
     <div className="overflow-x-auto rounded-md border border-line bg-paper" aria-busy={!sessions || busy}>
       <Table className={cn('text-[13.5px]', busy && 'opacity-60')}>
@@ -82,7 +115,9 @@ export function SessionsTable({ sessions, emptyMessage, busy }: SessionsTablePro
                   <StatusBadge kind={BADGE[s.status]} />
                   {howItEnded(s) ? <span className="mt-0.5 block text-[12.5px] text-ink-2">{howItEnded(s)}</span> : null}
                 </TableCell>
-                <TableCell className={CELL} />
+                <TableCell className={cn(CELL, 'text-right')}>
+                  {s.status === 'active' && actions ? <RowButton session={s} actions={actions} /> : null}
+                </TableCell>
               </TableRow>
             ))
           )}

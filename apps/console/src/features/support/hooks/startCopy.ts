@@ -21,3 +21,17 @@ export function editConfirmCopy(tenantName: string, userName: string, minutes: n
     destructive: false,
   }
 }
+
+/** The question before revoking someone else's session: it stops at once, and they have to start again with a new reason. */
+export function revokeConfirmCopy(session: { staffName: string; tenantUserName: string; tenantName: string }): ConfirmCopy {
+  return {
+    title: `Revoke ${session.staffName}'s session?`,
+    intro: [
+      `${session.staffName} is signed in as ${session.tenantUserName} at ${session.tenantName}. Their access stops at once, and they have to start a new session, with a new reason, to get back in.`,
+    ],
+    lists: [],
+    outro: ['The session is recorded as revoked by you.'],
+    confirmLabel: 'Revoke session',
+    destructive: true,
+  }
+}

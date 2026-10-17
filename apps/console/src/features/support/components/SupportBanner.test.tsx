@@ -167,3 +167,38 @@ describe('SupportBanner: Open workspace', () => {
     expect(opened).not.toHaveBeenCalled()
   })
 })
+
+describe('SupportBanner: End session', () => {
+  const ends = () => fetchSpy.mock.calls.filter(([url, init]) => String(url).endsWith('/end') && init?.method === 'POST')
+
+  it('ends your session and the banner goes away', async () => {
+    begin('u2')
+    const user = userEvent.setup()
+    open()
+    await user.click(await screen.findByRole('button', { name: 'End session' }))
+    expect(await screen.findByText('Support session ended')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+    expect(ends()).toHaveLength(1)
+  })
+
+  it('ends it once when the button is clicked twice in the same instant', async () => {
+    begin('u2')
+    open()
+    const button = await screen.findByRole('button', { name: 'End session' })
+    act(() => {
+      fireEvent.click(button)
+      fireEvent.click(button)
+    })
+    await screen.findByText('Support session ended')
+    expect(ends()).toHaveLength(1)
+  })
+
+  it('shows the server\'s sentence if it was already over', async () => {
+    begin('u2')
+    server.use(http.post(`${API_BASE}/support-sessions/:id/end`, () => HttpResponse.json({ type: 'https://errors.arkadious.example/support/not-active', title: 'Conflict', status: 409, detail: 'This support session is already over.' }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } })))
+    const user = userEvent.setup()
+    open()
+    await user.click(await screen.findByRole('button', { name: 'End session' }))
+    expect(await screen.findByText('This support session is already over.')).toBeInTheDocument()
+  })
+})
