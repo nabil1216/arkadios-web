@@ -56,14 +56,7 @@ export default function BillingPage() {
 
       <BillsTotals summary={summary} />
 
-      <BillsToolbar
-        q={state.q}
-        status={state.status}
-        month={state.month}
-        onSearch={(q) => update({ q }, { replace: true })}
-        onStatus={(status) => update({ status })}
-        onMonth={(month) => update({ month })}
-      />
+      <BillsToolbar q={state.q} status={state.status} month={state.month} onChange={update} />
 
       {isError && !data ? (
         <div role="alert" className="rounded-md border border-line bg-paper p-5">

@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { useSearchParams } from 'react-router'
+import { useLatestSearchParams } from '@/lib/useLatestSearchParams'
 import { billListKey, billSummaryKey, fetchBills, fetchBillSummary } from '../api/bills'
 import { parseBillListParams, toApiParams, toSearchParams, toSummaryParams, withChange, type BillListState } from './listParams'
 
@@ -9,7 +9,7 @@ import { parseBillListParams, toApiParams, toSearchParams, toSummaryParams, with
  * are a second request that follows the search and the month. Changing anything but the page starts again from page 1.
  */
 export function useBillList() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const { searchParams, commit } = useLatestSearchParams()
   const state = parseBillListParams(searchParams)
   const apiParams = toApiParams(state)
   const summaryParams = toSummaryParams(state)
@@ -25,16 +25,19 @@ export function useBillList() {
     placeholderData: keepPreviousData,
   })
 
-  /** `replace` keeps typing in the search box from filling the back button. */
+  /**
+   * `replace` keeps typing in the search box from filling the back button. The change is merged into the newest address, not
+   * into the one this render saw, so a search that waited cannot undo a filter changed since.
+   */
   function update(patch: Partial<BillListState>, options: { replace?: boolean } = {}) {
-    setSearchParams(toSearchParams(withChange(state, patch)), { replace: options.replace })
+    commit((latest) => toSearchParams(withChange(parseBillListParams(latest), patch)), { replace: options.replace })
   }
 
   // A page past the end moves to the last real page.
   const data = list.isPlaceholderData ? undefined : list.data
   useEffect(() => {
     if (data && data.items.length === 0 && data.total > 0 && data.page > 1) {
-      setSearchParams(toSearchParams({ ...state, page: Math.ceil(data.total / data.pageSize) }), { replace: true })
+      commit((latest) => toSearchParams({ ...parseBillListParams(latest), page: Math.ceil(data.total / data.pageSize) }), { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])

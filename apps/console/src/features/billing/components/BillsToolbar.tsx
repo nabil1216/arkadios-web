@@ -1,11 +1,10 @@
 import { Search } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { NativeSelect } from '@/components/NativeSelect'
 import { Input } from '@/components/ui/input'
+import { useDebouncedSearch } from '@/lib/useDebouncedSearch'
 import { BILL_STATUSES } from '../api/types'
 import { MONTH_PATTERN, type BillListState } from '../hooks/listParams'
-
-const DEBOUNCE_MS = 300
 
 const STATUS_LABELS = { all: 'All statuses', overdue: 'Overdue', pending: 'Pending', paid: 'Paid' } as const
 const STATUS_ORDER = ['all', ...[...BILL_STATUSES].sort((a, b) => Object.keys(STATUS_LABELS).indexOf(a) - Object.keys(STATUS_LABELS).indexOf(b))] as const
@@ -14,30 +13,17 @@ interface BillsToolbarProps {
   q: string
   status: BillListState['status']
   month: string
-  onSearch: (q: string) => void
-  onStatus: (status: BillListState['status']) => void
-  onMonth: (month: string) => void
+  /** Applies a change to the list. `replace` keeps typing from filling the back button. */
+  onChange: (patch: Partial<BillListState>, options?: { replace?: boolean }) => void
 }
 
-export function BillsToolbar({ q, status, month, onSearch, onStatus, onMonth }: BillsToolbarProps) {
-  const [text, setText] = useState(q)
-  // The address bar changed on its own (back button): show it in the box.
-  const [seenQ, setSeenQ] = useState(q)
-  if (q !== seenQ) {
-    setSeenQ(q)
-    if (text.trim() !== q) setText(q)
+export function BillsToolbar({ q, status, month, onChange }: BillsToolbarProps) {
+  // Typing is applied once the person pauses; another filter changing takes a waiting search along with it, in one step.
+  const search = useDebouncedSearch(q, (next) => onChange({ q: next }, { replace: true }))
+  const withSearch = (patch: Partial<BillListState>): Partial<BillListState> => {
+    const pending = search.takePending()
+    return pending !== undefined ? { ...patch, q: pending } : patch
   }
-
-  // Typing updates the URL (and so the list) once the person pauses.
-  const onSearchRef = useRef(onSearch)
-  useEffect(() => {
-    onSearchRef.current = onSearch
-  })
-  useEffect(() => {
-    if (text.trim() === q) return
-    const id = setTimeout(() => onSearchRef.current(text.trim()), DEBOUNCE_MS)
-    return () => clearTimeout(id)
-  }, [text, q])
 
   // A browser without a month picker shows a text box: only a complete "2026-09" (or nothing) reaches the address bar.
   const [monthText, setMonthText] = useState(month)
@@ -56,10 +42,10 @@ export function BillsToolbar({ q, status, month, onSearch, onStatus, onMonth }: 
         <Search size={16} strokeWidth={1.7} aria-hidden="true" className="pointer-events-none absolute top-[11px] left-[11px] text-ink-2" />
         <Input
           id="b-q"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          value={search.text}
+          onChange={(e) => search.setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onSearch(text.trim())
+            if (e.key === 'Enter') search.commit()
           }}
           placeholder="Search by tenant"
           autoComplete="off"
@@ -74,7 +60,7 @@ export function BillsToolbar({ q, status, month, onSearch, onStatus, onMonth }: 
         <NativeSelect
           id="b-status"
           value={status}
-          onChange={(e) => onStatus(e.target.value as BillListState['status'])}
+          onChange={(e) => onChange(withSearch({ status: e.target.value as BillListState['status'] }))}
           className="w-[180px]"
         >
           {STATUS_ORDER.map((value) => (
@@ -96,7 +82,7 @@ export function BillsToolbar({ q, status, month, onSearch, onStatus, onMonth }: 
           pattern="\d{4}-\d{2}"
           onChange={(e) => {
             setMonthText(e.target.value)
-            if (e.target.value === '' || MONTH_PATTERN.test(e.target.value)) onMonth(e.target.value)
+            if (e.target.value === '' || MONTH_PATTERN.test(e.target.value)) onChange(withSearch({ month: e.target.value }))
           }}
           className="h-[38px] w-[170px] bg-paper"
         />
