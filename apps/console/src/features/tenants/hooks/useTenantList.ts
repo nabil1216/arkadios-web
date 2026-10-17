@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { useSearchParams } from 'react-router'
+import { useLatestSearchParams } from '@/lib/useLatestSearchParams'
 import { fetchTenants, tenantListKey } from '../api/tenants'
 import {
   parseTenantListParams,
@@ -15,7 +15,7 @@ import {
  * Changing anything but the page starts again from page 1.
  */
 export function useTenantList() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const { searchParams, commit } = useLatestSearchParams()
   const state = parseTenantListParams(searchParams)
   const apiParams = toApiParams(state)
 
@@ -25,9 +25,12 @@ export function useTenantList() {
     placeholderData: keepPreviousData,
   })
 
-  /** `replace` keeps typing in the search box from filling the back button. */
+  /**
+   * `replace` keeps typing in the search box from filling the back button. The change is merged into the newest address, not
+   * into the one this render saw, so a search that waited cannot undo a filter changed since.
+   */
   function update(patch: Partial<TenantListState>, options: { replace?: boolean } = {}) {
-    setSearchParams(toSearchParams(withChange(state, patch)), { replace: options.replace })
+    commit((latest) => toSearchParams(withChange(parseTenantListParams(latest), patch)), { replace: options.replace })
   }
 
   // A page past the end (a stale link, or rows deleted meanwhile) moves to the last real page.
@@ -35,7 +38,7 @@ export function useTenantList() {
   useEffect(() => {
     if (data && data.items.length === 0 && data.total > 0 && data.page > 1) {
       const last = Math.ceil(data.total / data.pageSize)
-      setSearchParams(toSearchParams({ ...state, page: last }), { replace: true })
+      commit((latest) => toSearchParams({ ...parseTenantListParams(latest), page: last }), { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])

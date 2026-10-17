@@ -1,11 +1,9 @@
 import { Search } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
 import { NativeSelect } from '@/components/NativeSelect'
 import { Input } from '@/components/ui/input'
+import { useDebouncedSearch } from '@/lib/useDebouncedSearch'
 import { TENANT_STATUSES } from '../api/types'
 import type { TenantListState } from '../hooks/listParams'
-
-const DEBOUNCE_MS = 300
 
 const STATUS_LABELS = {
   all: 'All statuses',
@@ -18,29 +16,13 @@ const STATUS_LABELS = {
 interface TenantsToolbarProps {
   q: string
   status: TenantListState['status']
-  onSearch: (q: string) => void
-  onStatus: (status: TenantListState['status']) => void
+  /** Applies a change to the list. `replace` keeps typing from filling the back button. */
+  onChange: (patch: Partial<TenantListState>, options?: { replace?: boolean }) => void
 }
 
-export function TenantsToolbar({ q, status, onSearch, onStatus }: TenantsToolbarProps) {
-  const [text, setText] = useState(q)
-  // The address bar changed on its own (back button, "clear"): show it in the box.
-  const [seenQ, setSeenQ] = useState(q)
-  if (q !== seenQ) {
-    setSeenQ(q)
-    if (text.trim() !== q) setText(q)
-  }
-
-  // Typing updates the URL (and so the list) once the person pauses.
-  const onSearchRef = useRef(onSearch)
-  useEffect(() => {
-    onSearchRef.current = onSearch
-  })
-  useEffect(() => {
-    if (text.trim() === q) return
-    const id = setTimeout(() => onSearchRef.current(text.trim()), DEBOUNCE_MS)
-    return () => clearTimeout(id)
-  }, [text, q])
+export function TenantsToolbar({ q, status, onChange }: TenantsToolbarProps) {
+  // Typing is applied once the person pauses; another filter changing takes a waiting search along with it, in one step.
+  const search = useDebouncedSearch(q, (next) => onChange({ q: next }, { replace: true }))
 
   return (
     <div className="mb-3.5 flex flex-wrap gap-3">
@@ -56,10 +38,10 @@ export function TenantsToolbar({ q, status, onSearch, onStatus }: TenantsToolbar
         />
         <Input
           id="t-q"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          value={search.text}
+          onChange={(e) => search.setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onSearch(text.trim())
+            if (e.key === 'Enter') search.commit()
           }}
           placeholder="Search by name, domain, or database"
           autoComplete="off"
@@ -74,7 +56,10 @@ export function TenantsToolbar({ q, status, onSearch, onStatus }: TenantsToolbar
         <NativeSelect
           id="t-status"
           value={status}
-          onChange={(e) => onStatus(e.target.value as TenantListState['status'])}
+          onChange={(e) => {
+            const pending = search.takePending()
+            onChange({ status: e.target.value as TenantListState['status'], ...(pending !== undefined ? { q: pending } : {}) })
+          }}
           className="w-[180px]"
         >
           {(['all', ...TENANT_STATUSES] as const).map((value) => (

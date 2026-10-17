@@ -47,12 +47,7 @@ export default function TenantsPage() {
         <CreateTenantDrawer open={createOpen} onOpenChange={setCreateOpen} returnFocusTo={createButton} />
       </Can>
 
-      <TenantsToolbar
-        q={state.q}
-        status={state.status}
-        onSearch={(q) => update({ q }, { replace: true })}
-        onStatus={(status) => update({ status })}
-      />
+      <TenantsToolbar q={state.q} status={state.status} onChange={update} />
 
       {isError && !data ? (
         <div role="alert" className="rounded-md border border-line bg-paper p-5">
