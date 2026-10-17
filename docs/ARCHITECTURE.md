@@ -469,6 +469,11 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
 - `POST /support-sessions/{id}/end` ends a session. The owner can always end their own (even after losing `support.manage`). Anyone else needs
   `support.manage`, and that is a **revoke**: the status is `revoked` and `endedBy` is the person who did it. `403` for anyone else, `404` for an
   unknown id, `409` `support/not-active` for a session that is already over. It returns the session. Ending takes effect at once (see "The token").
+  - **Revoke is a deliberate exception to the outranked rule.** `access/outranked` does not apply to it: any holder of `support.manage` may
+    revoke any open session, including a Super admin's, because stopping someone's access to a client's data must always be possible. The
+    safeguards are these: the console asks for confirmation first, naming the person, the tenant user and the tenant; a `support.revoked`
+    `PlatformAuditLog` entry names who revoked it; and the backend **notifies the session owner** (who revoked it, when, and on which tenant),
+    by email through the outbox job like the other notices in this contract.
 - `POST /support-sessions/{id}/handoff` issues a new handoff code for a session whose workspace did not open yet (a blocked pop-up). It returns
   `{ handoff }`. Owner only (not even a Super admin; `403`). The session must be active, and it only works **until the first exchange**
   (`409` `support/already-opened`). At most **3 re-issues** per session (`409` `support/reissue-limit`). Each new code invalidates the previous one.
@@ -488,18 +493,25 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
     It must read the fragment and call the exchange **once per page load**, even if the framework renders or loads twice (React's StrictMode
     builds a router twice in development): the first run uses the code up and clears the fragment, so a second run would find nothing,
     or send the spent code, which revokes the session (see below). Keep the result in module scope and give every caller the same one.
+    **The real workspace must exchange the handoff code exactly once per page load. StrictMode and reloads must not replay it.** A reload has no
+    fragment left (it was cleared), so it shows the same generic message as any bad link; the page must never keep the code (in history, storage
+    or the URL) to try again with. A staff member who loses the workspace tab after the exchange starts a new session: a new link is only
+    available until the first exchange.
   - `POST /api/v1/auth/support-exchange` (tenant API) with `{ code }` returns `200` with `{ accessToken, expiresIn, session }`, where `session` is
     `{ id, actAs: { id, name }, tenantUser: { id, name }, reason, mode, expiresAt }`. `Cache-Control: no-store`, **no refresh token and no cookie**.
   - A wrong, expired, replaced or reused code returns **one generic `400`** (`auth/invalid-handoff`, "This support link is invalid or has expired.").
     The response never says which. **A reused code also revokes its session** (status `revoked`) and writes a security audit entry, because only a
     copy of the code can explain a second try; the caller still gets the same generic `400`. A code that was replaced by a re-issue is simply
     invalid, and does not revoke anything.
-  - The exchange is rate limited (10 attempts a minute per client address; `429` with `Retry-After`).
+  - The exchange is rate limited **per IP address and per session**: 10 attempts a minute from one address, and 10 attempts a minute against one
+    session (counted when the code names a session the server issued, so guessing cannot be spread over many addresses). Whichever is reached
+    first returns `429` with `Retry-After`. Attempts that name no session count against the address only.
 - **The token.** Short, **not renewable**, no refresh token. It carries `sub` (the tenant user), `act_as` (the platform user id), `sid` (the
   session id), `rid` (the reason id), `mode` and `exp`. `exp` is the end of the chosen duration, and `expiresIn` in the exchange is what is left
   of it, never more. **Ending the session revokes the token at once**: the tenant API checks the session's state on every request (no cache
-  that can outlive an end), so End session, a revoke and expiry all stop it on the next request. Expiry is derived from `expiresAt`, and a job
-  writes the `support.expired` audit entry when it passes.
+  that can outlive an end), so End session, a revoke and expiry all stop it on the next request. **Expiry is enforced on every request by
+  comparing the current time with `expiresAt`**, so a request after it is refused whether or not any job has run. A job runs after the fact and
+  only writes the `support.expired` audit entry and notifies the session owner; it is not what stops the token.
 - **Audit, in both places.**
   - Mother DB `PlatformAuditLog`: `support.started`, `support.ended`, `support.expired`, `support.revoked`, `support.handoff-reissued`
     and `support.handoff-replayed`. Each records who (the actor, or the system for an expiry), the tenant, the tenant user, the reason and the mode.
@@ -519,7 +531,7 @@ a reason, a short expiry, and an audit entry in both mother and tenant DBs.
   sign-in page). It cannot be dismissed or hidden, renders the reason as text, and the workspace signs out when the time is up.
 - Backend notes:
   - Business rules to confirm with the client: which tenant statuses may be targeted (above), the 15, 30 and 60 minute lengths, 10 starts an hour,
-    and 3 re-issues.
+    3 re-issues, and the exchange limits (10 a minute per IP address and per session).
   - The reason is the client's data too: show it to the tenant's admins and keep it with the audit trail. Never log it in application logs.
 
 **Password reset (platform API; the tenant API follows the same shape)**
